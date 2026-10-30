@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="RT RW Digital Bersatu icon">
+  <defs>
+    <linearGradient id="g1" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="#F1F5F9"/>
+  <rect x="18" y="18" width="156" height="156" rx="34" fill="url(#g1)"/>
+  <path d="M52 114V78h18l22 30 22-30h18v36h-16V92l-24 32-24-32v22H52z" fill="#fff"/>
+  <circle cx="134" cy="62" r="18" fill="#E0F2FE"/>
+  <path d="M134 48v28M120 62h28" stroke="#0284C7" stroke-width="6" stroke-linecap="round"/>
+</svg>

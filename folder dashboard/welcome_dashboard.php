@@ -7,7 +7,7 @@
 
 <div class="stats-grid">
     <div class="stat-card">
-        <p class="stat-label">SALDO KAS RT SAAT INI</p>
+        <p class="stat-label">SALDO RT RW DIGITAL BERSATU SAAT INI</p>
         <?php
             $q_saldo = mysqli_query($koneksi, "SELECT SUM(CASE WHEN jenis='masuk' THEN jumlah ELSE -jumlah END) as total FROM keuangan");
             $d_saldo = mysqli_fetch_assoc($q_saldo);

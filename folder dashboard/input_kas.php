@@ -1,5 +1,4 @@
 <?php
-
 include "../Koneksi.php"; 
 
 if (session_status() === PHP_SESSION_NONE) {
@@ -12,219 +11,109 @@ if (!isset($_SESSION['nama'])) {
 }
 
 $nama_user = $_SESSION['nama'];
+$role = isset($_SESSION['role']) ? strtoupper($_SESSION['role']) : 'WARGA';
 
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '$nama_user'");
-$data_user = mysqli_fetch_assoc($query_user);
-$foto_db = $data_user['foto'] ?? "";
-
-if (!empty($foto_db) && file_exists("../img/" . $foto_db)) {
-    $tampilan_foto = "../img/" . $foto_db;
-} else {
-    $tampilan_foto = "https://ui-avatars.com/api/?name=" . urlencode($nama_user) . "&background=3498db&color=fff";
-}
+$title = 'Input Kas RT - RT RW Digital Bersatu';
+include '../includes/header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Input Kas RT - RT Digital</title>
-    <link rel="stylesheet" href="dashboard.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        
-        .input-card {
-            width: 100%;
-            max-width: 650px;
-            background: white;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-            margin: 20px auto;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        .form-group label {
-            display: block;
-            font-weight: 700;
-            color: #34495e;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-        }
-        .form-control {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #eef2f7;
-            border-radius: 10px;
-            font-size: 1rem;
-            transition: border-color 0.3s;
-            outline: none;
-            box-sizing: border-box;
-        }
-        .form-control:focus {
-            border-color: #3498db;
-        }
-        .btn-simpan {
-            width: 100%;
-            padding: 15px;
-            background-color: #2ecc71;
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 1.1rem;
-            font-weight: 800;
-            cursor: pointer;
-            transition: all 0.3s;
-            margin-top: 10px;
-        }
-        .btn-simpan:hover {
-            background-color: #27ae60;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(46, 204, 113, 0.3);
-        }
-        .alert-success {
-            background-color: #d4edda;
-            color: #155724;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 25px;
-            text-align: center;
-            border: 1px solid #c3e6cb;
-            font-weight: 600;
-        }
-    </style>
-</head>
-<body>
+<div class="app-layout">
+    <?php include '../includes/sidebar.php'; ?>
 
-<div class="dashboard-wrapper">
-    
-    <aside class="sidebar" id="sidebar">
-        <div class="brand">RT DIGITAL</div>
-        
-        <div class="sidebar-profile">
-            <div class="profile-avatar-container">
-                <img src="<?php echo $tampilan_foto; ?>" class="sidebar-avatar" alt="User Profile">
+    <div class="app-main">
+        <header class="app-topbar">
+            <div class="app-topbar__left">
+                <button id="toggle-sidebar" class="app-topbar__toggle" aria-label="Toggle menu" aria-expanded="true">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+                <div>
+                    <strong style="color: var(--text);">Input Kas RT</strong>
+                </div>
             </div>
-            <div class="sidebar-username"><?php echo $nama_user; ?></div>
-        </div>
-        
-        <nav class="sidebar-menu">
-            <a href="dashboard.php" class="menu-item">
-                <i class="fa-solid fa-table-columns"></i> Dashboard
-            </a>
-            <a href="kelola_warga.php" class="menu-item">
-                <i class="fa-solid fa-users"></i> Kelola Data Warga
-            </a>
-            <a href="input_kas.php" class="menu-item active">
-                <i class="fa-solid fa-file-pen"></i> Input Kas RT
-            </a>
-            <a href="laporan.php" class="menu-item">
-                <i class="fa-solid fa-file-lines"></i> Laporan Keuangan
-            </a>
-            <a href="../profil.php" class="menu-item">
-                <i class="fa-solid fa-user-gear"></i> Edit Profil
-            </a>
-            
-            <div class="sidebar-footer">
-                <a href="../folder login,logout dan register/logout.php" class="menu-item-logout">
-                    <i class="fa-solid fa-right-from-bracket"></i> Keluar
+            <div class="app-topbar__actions">
+                <a href="laporan.php" class="ghost-btn" style="text-decoration:none;">
+                    <i class="fa-solid fa-file-lines"></i> Laporan Keuangan
                 </a>
             </div>
-        </nav>
-    </aside>
+        </header>
 
-    <div class="main-content" id="main-content">
-        <div class="top-navbar">
-            <button id="toggle-sidebar" class="hamburger-btn">
-                <i class="fa-solid fa-bars"></i>
-            </button>
-        </div>
-
-        <main class="content-body" style="display: flex; flex-direction: column; align-items: center;">
-            
-            <div class="input-card">
-                <div style="text-align: center; margin-bottom: 30px;">
-                    <h2 style="color: #2c3e50; font-weight: 800;">
-                        <i class="fa-solid fa-money-bill-transfer" style="color: #3498db; margin-right: 10px;"></i>
-                        Input Transaksi Kas
-                    </h2>
-                    <p style="color: #7f8c8d; font-size: 0.95rem;">Pastikan data pemasukan atau pengeluaran sudah benar.</p>
+        <main class="page-shell">
+            <div class="page-header">
+                <div>
+                    <h1><i class="fa-solid fa-file-pen" style="color: var(--primary);"></i> Input Transaksi Kas RT</h1>
+                    <p style="margin: 6px 0 0; color: var(--text-soft);">Catat transaksi iuran masuk atau pengeluaran kas RT secara real-time maupun manual.</p>
                 </div>
-
-                <?php if(isset($_GET['status']) && $_GET['status'] == 'berhasil'): ?>
-                    <div class="alert-success">
-                        <i class="fa-solid fa-check-double"></i> Transaksi kas berhasil dicatat ke database!
-                    </div>
-                <?php endif; ?>
-
-                <form action="proses_kas.php" method="POST">
-                    
-                    <div class="form-group">
-                        <label>Nama Warga Pembayar/Penerima</label>
-                        <select name="nama_warga" required class="form-control">
-                            <option value="">-- Pilih Warga --</option>
-                            <?php
-                            $warga = mysqli_query($koneksi, "SELECT nama FROM users ORDER BY nama ASC");
-                            while($w = mysqli_fetch_array($warga)){
-                                echo "<option value='".$w['nama']."'>".$w['nama']."</option>";
-                            }
-                            ?>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Keterangan Transaksi</label>
-                        <input type="text" name="keterangan" required class="form-control" placeholder="Contoh: Iuran Sampah, Perbaikan Atap, dll.">
-                    </div>
-
-                    <div style="display: flex; gap: 20px;">
-                        <div class="form-group" style="flex: 1;">
-                            <label>Jenis Kas</label>
-                            <select name="jenis_kas" required class="form-control">
-                                <option value="masuk">Pemasukan (+)</option>
-                                <option value="keluar">Pengeluaran (-)</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group" style="flex: 1;">
-                            <label>Jumlah (Rp)</label>
-                            <input type="number" name="jumlah_kas" required class="form-control" placeholder="Angka saja (Cth: 50000)">
-                        </div>
-                    </div>
-
-                    <button type="submit" name="simpan_kas" class="btn-simpan">
-                        <i class="fa-solid fa-save"></i> Simpan Transaksi Kas
-                    </button>
-
-                </form>
             </div>
 
+            <?php if(isset($_GET['status']) && $_GET['status'] == 'berhasil'): ?>
+                <div class="glass-panel" style="background:#dcfce7; color:#166534; border:1px solid #bbf7d0; padding:14px 18px; margin-bottom:20px; border-radius:12px; font-weight:700;">
+                    <i class="fa-solid fa-circle-check"></i> Transaksi kas berhasil diverifikasi dan dicatat ke pembukuan!
+                </div>
+            <?php endif; ?>
+
+            <div style="max-width: 680px; margin: 0 auto;">
+                <div class="module-panel">
+                    <div class="module-panel__header">
+                        <i class="fa-solid fa-money-bill-transfer" style="color:var(--primary); margin-right:8px;"></i> Formulir Transaksi Kas
+                    </div>
+                    <div style="padding: 28px;">
+                        <form action="proses_kas.php" method="POST">
+                            <input type="hidden" name="action" value="preview_payment">
+                            
+                            <div style="margin-bottom: 18px;">
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Nama Warga Pembayar / Penerima</label>
+                                <?php if ($role === 'ADMIN'): ?>
+                                <select name="nama_warga" required class="form-control" style="width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:0.95rem;">
+                                    <option value="">-- Pilih Warga --</option>
+                                    <?php
+                                    $warga = mysqli_query($koneksi, "SELECT nama FROM users ORDER BY nama ASC");
+                                    while($w = mysqli_fetch_array($warga)){
+                                        echo "<option value='".htmlspecialchars($w['nama'], ENT_QUOTES)."'>".htmlspecialchars($w['nama'])."</option>";
+                                    }
+                                    ?>
+                                </select>
+                                <?php else: ?>
+                                <input type="text" class="form-control" value="<?php echo htmlspecialchars($nama_user); ?>" disabled style="width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#f1f5f9; font-size:0.95rem;">
+                                <input type="hidden" name="nama_warga" value="<?php echo htmlspecialchars($nama_user); ?>">
+                                <?php endif; ?>
+                            </div>
+
+                            <div style="margin-bottom: 18px;">
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Keterangan Transaksi</label>
+                                <input type="text" name="keterangan" required class="form-control" placeholder="Contoh: Iuran Kebersihan, Perbaikan Lampu Jalan, dll." style="width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:0.95rem;">
+                            </div>
+
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px;">
+                                <div>
+                                    <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Jenis Kas</label>
+                                    <select name="jenis_kas" required class="form-control" style="width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:0.95rem;">
+                                        <option value="masuk">Pemasukan (+)</option>
+                                        <option value="keluar">Pengeluaran (-)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Jumlah (Rp)</label>
+                                    <input type="number" name="jumlah_kas" required class="form-control" placeholder="Angka saja (Cth: 50000)" style="width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:0.95rem;">
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 24px;">
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Metode Pembayaran</label>
+                                <select name="metode_bayar" class="form-control" style="width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:0.95rem; font-weight:700; color:var(--primary);">
+                                    <option value="realtime">⚡ QRIS Real-Time (Otomatis Terverifikasi & Cepat)</option>
+                                    <option value="manual">📁 Transfer Bank Manual (Upload Bukti Foto)</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="primary-btn" style="width:100%; padding:13px 20px; font-size:1rem; justify-content:center;">
+                                <i class="fa-solid fa-bolt"></i> Lanjut ke Pembayaran Real-Time
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 </div>
 
-<script>
-    document.addEventListener("DOMContentLoaded", function() {
-        const toggleBtn = document.getElementById("toggle-sidebar");
-        const sidebar = document.getElementById("sidebar");
-        const mainContent = document.getElementById("main-content");
-
-        if (toggleBtn && sidebar && mainContent) {
-            toggleBtn.addEventListener("click", function(e) {
-                e.preventDefault();
-                
-                if (sidebar.style.marginLeft === "-260px") {
-                    sidebar.style.marginLeft = "0px";
-                    mainContent.style.width = "calc(100% - 260px)";
-                } else {
-                    sidebar.style.marginLeft = "-260px";
-                    mainContent.style.width = "100%";
-                }
-            });
-        }
-    });
-</script>
-</body>
-</html>
+<?php include '../includes/footer.php'; ?>

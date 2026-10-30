@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-// Jika tombol "Kembali ke Login" di SweetAlert sudah diklik, hancurkan session dan ke login.php
+
 if (isset($_GET['confirm'])) {
     session_unset();
     session_destroy();
@@ -9,24 +9,32 @@ if (isset($_GET['confirm'])) {
     exit();
 }
 
-// Ambil nama dari session sebelum session-nya dihancurkan.
-// Jika session 'nama' tidak ada, dia akan memunculkan teks 'User' sebagai cadangan.
+
 $nama_user = isset($_SESSION['nama']) ? $_SESSION['nama'] : 'User';
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <title>Logout - RT Digital</title>
+    <title>Logout - RT RW Digital Bersatu</title>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         body {
-            background-color: #1e293b; /* Warna gelap biar senada dengan sidebar kamu */
+            background: linear-gradient(135deg, #e6f7ff 0%, #dff6ff 60%);
             margin: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             height: 100vh;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        .swal2-popup {
+            border-radius: 18px;
+            box-shadow: 0 16px 40px rgba(15, 49, 91, 0.15);
+        }
+        .swal2-confirm {
+            background: #0b69a3 !important;
+            color: #ffffff !important;
         }
     </style>
 </head>
@@ -35,16 +43,17 @@ $nama_user = isset($_SESSION['nama']) ? $_SESSION['nama'] : 'User';
     <script>
         Swal.fire({
             title: 'Logout Berhasil!',
-            // Mengubah nama kaku 'Reival' menjadi dinamis menggunakan PHP echo
+           
             text: 'Sampai jumpa lagi, <?php echo htmlspecialchars($nama_user); ?>!',
             icon: 'success',
             showConfirmButton: true,
-            confirmButtonColor: '#38bdf8',
+            confirmButtonColor: '#0b69a3',
             confirmButtonText: 'Kembali ke Login',
+            background: '#ffffff',
             allowOutsideClick: false
         }).then((result) => {
             if (result.isConfirmed) {
-                // Redirect untuk menjalankan proses hapus session di atas
+                
                 window.location.href = 'logout.php?confirm=1';
             }
         });

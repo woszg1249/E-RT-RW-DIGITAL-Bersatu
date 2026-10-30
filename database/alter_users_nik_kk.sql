@@ -1,0 +1,7 @@
+ALTER TABLE users
+  ADD COLUMN nik VARCHAR(16) NULL AFTER email,
+  ADD COLUMN no_kk VARCHAR(16) NULL AFTER nik;
+
+-- Pastikan hanya 16 digit angka
+-- ALTER TABLE users MODIFY nik VARCHAR(16) NOT NULL;
+-- ALTER TABLE users MODIFY no_kk VARCHAR(16) NOT NULL;

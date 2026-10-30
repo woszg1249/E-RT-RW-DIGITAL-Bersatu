@@ -1,250 +1,264 @@
 <?php
 include "../Koneksi.php";
-session_start();
 
-// Proteksi ekstra: Hanya Admin yang bisa masuk halaman ini!
-if (!isset($_SESSION['nama']) || strtoupper($_SESSION['role'] ?? 'WARGA') !== 'ADMIN') {
+$tagihanExists = mysqli_query($koneksi, "SHOW TABLES LIKE 'tagihan'");
+if (mysqli_num_rows($tagihanExists) === 0) {
+    mysqli_query($koneksi, "CREATE TABLE tagihan (
+        id_tagihan INT AUTO_INCREMENT PRIMARY KEY,
+        id_user INT NOT NULL,
+        bulan_tahun VARCHAR(50) DEFAULT NULL,
+        tanggal_tagihan DATE DEFAULT NULL,
+        jumlah DECIMAL(15,2) NOT NULL DEFAULT 0,
+        status_bayar VARCHAR(30) DEFAULT 'belum',
+        tgl_buat DATETIME DEFAULT CURRENT_TIMESTAMP,
+        tgl_update DATETIME NULL
+    )");
+}
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+if (!isset($_SESSION['nama'])) {
+    header("Location: ../folder login,logout dan register/login.php");
+    exit();
+}
+
+if (strtoupper($_SESSION['role'] ?? 'WARGA') !== 'ADMIN') {
     echo "<script>alert('Akses Ditolak! Anda bukan Admin.'); window.location='dashboard.php';</script>";
     exit();
 }
 
-$nama_user = $_SESSION['nama']; 
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '$nama_user'");
-$data_user = mysqli_fetch_assoc($query_user);
-$foto_db = $data_user['foto'] ?? "";
-$tampilan_foto = (!empty($foto_db) && file_exists("../img/" . $foto_db)) ? "../img/" . $foto_db : "https://ui-avatars.com/api/?name=" . urlencode($nama_user) . "&background=4e73df&color=fff";
+$nama_user = $_SESSION['nama'];
+$role_user = $_SESSION['role'] ?? 'ADMIN';
 
+$form_error = '';
+$form_success = '';
 
-// ==========================================
-// LOGIKA PROSES DATA (TAMBAH, UPDATE, HAPUS)
-// ==========================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['simpan_tagihan'])) {
+    $id_user = isset($_POST['id_user']) ? (int)$_POST['id_user'] : 0;
+    $bulan_tahun = trim($_POST['bulan_tahun'] ?? '');
+    $tanggal_tagihan = trim($_POST['tanggal_tagihan'] ?? '');
+    $jumlah = isset($_POST['jumlah']) ? (float)$_POST['jumlah'] : 0;
+    $status_bayar = trim($_POST['status_bayar'] ?? 'belum');
 
-// 1. Proses Tambah Tagihan
-if (isset($_POST['simpan_tagihan'])) {
-    $id_warga = $_POST['id_user'];
-    $bulan_tahun = mysqli_real_escape_string($koneksi, $_POST['bulan_tahun']);
-    $jumlah = $_POST['jumlah'];
-    $status = $_POST['status_bayar'];
+    if (!empty($bulan_tahun)) {
+        $dateObj = DateTime::createFromFormat('Y-m', $bulan_tahun);
+        if ($dateObj) {
+            $bulan_tahun = $dateObj->format('F Y');
+        }
+    }
 
-    $insert = mysqli_query($koneksi, "INSERT INTO tagihan (id_user, bulan_tahun, jumlah, status_bayar) VALUES ('$id_warga', '$bulan_tahun', '$jumlah', '$status')");
-    
-    if ($insert) {
-        echo "<script>alert('Tagihan berhasil dikirim ke warga!'); window.location='kelola_tagihan.php';</script>";
+    if ($id_user > 0 && $bulan_tahun !== '' && $tanggal_tagihan !== '' && $jumlah >= 0) {
+        $sql = "INSERT INTO tagihan (id_user, bulan_tahun, tanggal_tagihan, jumlah, status_bayar, tgl_buat)
+                VALUES ('$id_user', '" . mysqli_real_escape_string($koneksi, $bulan_tahun) . "', '" . mysqli_real_escape_string($koneksi, $tanggal_tagihan) . "', '$jumlah', '" . mysqli_real_escape_string($koneksi, $status_bayar) . "', NOW())";
+
+        if (mysqli_query($koneksi, $sql)) {
+            header("Location: kelola_tagihan.php?success=1");
+            exit();
+        } else {
+            $form_error = "Gagal menyimpan tagihan: " . mysqli_error($koneksi);
+        }
     } else {
-        echo "<script>alert('Gagal membuat tagihan!');</script>";
+        $form_error = "Semua field harus diisi dengan benar.";
     }
 }
 
-// 2. Proses Update Status Bayar
-if (isset($_POST['update_status'])) {
-    $id_tagihan = $_POST['id_tagihan'];
-    $status_baru = $_POST['status_bayar'];
-    
-    mysqli_query($koneksi, "UPDATE tagihan SET status_bayar = '$status_baru', tgl_update = CURRENT_TIMESTAMP WHERE id_tagihan = '$id_tagihan'");
-    echo "<script>alert('Status pembayaran berhasil diperbarui!'); window.location='kelola_tagihan.php';</script>";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
+    $id_tagihan = isset($_POST['id_tagihan']) ? (int)$_POST['id_tagihan'] : 0;
+    $status_bayar = trim($_POST['status_bayar'] ?? 'belum');
+
+    if ($id_tagihan > 0) {
+        $sql = "UPDATE tagihan SET status_bayar = '" . mysqli_real_escape_string($koneksi, $status_bayar) . "', tgl_update = NOW() WHERE id_tagihan = '$id_tagihan'";
+        if (!mysqli_query($koneksi, $sql)) {
+            $form_error = "Gagal update status: " . mysqli_error($koneksi);
+        } else {
+            $form_success = "Status tagihan berhasil diperbarui.";
+        }
+    }
 }
 
-// 3. Proses Hapus Tagihan
 if (isset($_GET['hapus'])) {
-    $id_hapus = $_GET['hapus'];
-    mysqli_query($koneksi, "DELETE FROM tagihan WHERE id_tagihan = '$id_hapus'");
-    echo "<script>alert('Tagihan dihapus!'); window.location='kelola_tagihan.php';</script>";
+    $id_tagihan = (int)$_GET['hapus'];
+    if ($id_tagihan > 0) {
+        mysqli_query($koneksi, "DELETE FROM tagihan WHERE id_tagihan = '$id_tagihan'");
+        $form_success = "Tagihan berhasil dihapus.";
+    }
 }
+
+if (isset($_GET['success']) && $_GET['success'] == '1') {
+    $form_success = "Tagihan baru berhasil dibuat.";
+}
+
+$title = 'Kelola Tagihan Iuran Warga - RT RW Digital Bersatu';
+include '../includes/header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kelola Tagihan - RT Digital</title>
-    <link rel="stylesheet" href="dashboard.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        /* Styling tambahan khusus halaman ini */
-        .form-card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-        .form-control { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box; }
-        .btn-primary { background: #4e73df; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; }
-        .btn-primary:hover { background: #2e59d9; }
-        .table-responsive { overflow-x: auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        table { width: 100%; border-collapse: collapse; }
-        table th, table td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        table th { background-color: #f8f9fc; }
-        .badge { padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; color: white; }
-        .bg-warning { background: #f6c23e; }
-        .bg-danger { background: #e74a3b; }
-        .bg-success { background: #1cc88a; }
-    </style>
-</head>
-<body>
+<div class="app-layout">
+    <?php include '../includes/sidebar.php'; ?>
 
-<div class="dashboard-wrapper">
-    
-    <aside class="sidebar" id="sidebar">
-        <div class="brand">RT DIGITAL</div>
-        <div class="sidebar-profile">
-            <div class="profile-avatar-container">
-                <img src="<?php echo $tampilan_foto; ?>" class="sidebar-avatar" alt="User Profile">
+    <div class="app-main">
+        <header class="app-topbar">
+            <div class="app-topbar__left">
+                <button id="toggle-sidebar" class="app-topbar__toggle" aria-label="Toggle menu" aria-expanded="true">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+                <div>
+                    <strong style="color: var(--text);">Kelola Tagihan</strong>
+                </div>
             </div>
-            <div class="sidebar-username"><?php echo $nama_user; ?></div>
-        </div>
-        <nav class="sidebar-menu">
-            <a href="dashboard.php" class="menu-item">
-                <i class="fa-solid fa-table-columns"></i> Dashboard
-            </a>
-            <a href="kelola_warga.php" class="menu-item">
-                <i class="fa-solid fa-users"></i> Kelola Data Warga
-            </a>
-            <a href="kelola_tagihan.php" class="menu-item active">
-                <i class="fa-solid fa-file-invoice-dollar"></i> Kelola Tagihan
-            </a>
-            <a href="input_kas.php" class="menu-item">
-                <i class="fa-solid fa-file-pen"></i> Input Kas RT
-            </a>
-            <a href="laporan.php" class="menu-item">
-                <i class="fa-solid fa-file-lines"></i> Laporan Keuangan
-            </a>
-            <a href="../profil.php" class="menu-item">
-                <i class="fa-solid fa-user-gear"></i> Edit Profil
-            </a>
-            <div class="sidebar-footer">
-                <a href="../folder login,logout dan register/logout.php" class="menu-item-logout">
-                    <i class="fa-solid fa-right-from-bracket"></i> Keluar
+            <div class="app-topbar__actions">
+                <a href="input_kas.php" class="ghost-btn" style="text-decoration:none;">
+                    <i class="fa-solid fa-file-pen"></i> Input Kas RT
                 </a>
             </div>
-        </nav>
-    </aside>
+        </header>
 
-    <div class="main-content" id="main-content">
-        <div class="top-navbar">
-            <button id="toggle-sidebar" class="hamburger-btn"><i class="fa-solid fa-bars"></i></button>
-        </div>
-
-        <main class="content-body">
-            <h2 style="margin-bottom: 20px;">Kelola Tagihan Iuran Warga</h2>
-
-            <div class="form-card">
-                <h3>Buat Tagihan Baru</h3>
-                <hr style="margin: 10px 0; border: 0; border-top: 1px solid #eee;">
-                <form action="" method="POST">
-                    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                        <div class="form-group" style="flex: 1; min-width: 200px;">
-                            <label>Pilih Warga</label>
-                            <select name="id_user" class="form-control" required>
-                                <option value="">-- Pilih Warga --</option>
-                                <?php
-                                // Ambil data warga dari database
-                                $q_warga = mysqli_query($koneksi, "SELECT id, nama FROM users WHERE role = 'Warga'");
-                                while ($w = mysqli_fetch_assoc($q_warga)) {
-                                    echo "<option value='{$w['id']}'>{$w['nama']}</option>";
-                                }
-                                ?>
-                            </select>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 200px;">
-                            <label>Bulan & Tahun (Contoh: Mei 2026)</label>
-                            <input type="text" name="bulan_tahun" class="form-control" required>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 200px;">
-                            <label>Jumlah (Rp)</label>
-                            <input type="number" name="jumlah" class="form-control" value="50000" required>
-                        </div>
-                        <div class="form-group" style="flex: 1; min-width: 200px;">
-                            <label>Status Awal</label>
-                            <select name="status_bayar" class="form-control">
-                                <option value="belum">Belum Bayar</option>
-                                <option value="lunas">Sudah Lunas</option>
-                                <option value="telat">Telat</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button type="submit" name="simpan_tagihan" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Kirim Tagihan</button>
-                </form>
+        <main class="page-shell">
+            <div class="page-header">
+                <div>
+                    <h1><i class="fa-solid fa-file-invoice-dollar" style="color: var(--primary);"></i> Kelola Tagihan Iuran Warga</h1>
+                    <p style="margin: 6px 0 0; color: var(--text-soft);">Buat tagihan iuran bulanan untuk warga dan pantau status pembayarannya secara langsung.</p>
+                </div>
             </div>
 
-            <div class="table-responsive">
-                <h3>Daftar Tagihan & Pembayaran</h3>
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>No</th>
-                            <th>Nama Warga</th>
-                            <th>Bulan/Tahun</th>
-                            <th>Nominal</th>
-                            <th>Status</th>
-                            <th>Aksi Update</th>
-                            <th>Hapus</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php
-                        $no = 1;
-                        // Join tabel tagihan dan users agar nama warga tampil
-                        $q_tagihan = mysqli_query($koneksi, "SELECT t.*, u.nama FROM tagihan t JOIN users u ON t.id_user = u.id ORDER BY t.id_tagihan DESC");
-                        
-                        if(mysqli_num_rows($q_tagihan) > 0) {
-                            while ($row = mysqli_fetch_assoc($q_tagihan)) {
-                                // Tentukan warna badge
-                                $badge_class = 'bg-warning';
-                                if ($row['status_bayar'] == 'lunas') $badge_class = 'bg-success';
-                                if ($row['status_bayar'] == 'telat') $badge_class = 'bg-danger';
-                        ?>
-                        <tr>
-                            <td><?= $no++; ?></td>
-                            <td><?= $row['nama']; ?></td>
-                            <td><?= $row['bulan_tahun']; ?></td>
-                            <td>Rp <?= number_format($row['jumlah'], 0, ',', '.'); ?></td>
-                            <td><span class="badge <?= $badge_class; ?>"><?= strtoupper($row['status_bayar']); ?></span></td>
+            <?php if ($form_error !== ''): ?>
+                <div class="glass-panel" style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca; padding:12px 18px; margin-bottom:18px; border-radius:12px; font-weight:700;">
+                    <i class="fa-solid fa-triangle-exclamation"></i> <?php echo htmlspecialchars($form_error); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($form_success !== ''): ?>
+                <div class="glass-panel" style="background:#dcfce7; color:#166534; border:1px solid #bbf7d0; padding:12px 18px; margin-bottom:18px; border-radius:12px; font-weight:700;">
+                    <i class="fa-solid fa-circle-check"></i> <?php echo htmlspecialchars($form_success); ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Form Buat Tagihan Baru -->
+            <div class="module-panel" style="margin-bottom: 24px;">
+                <div class="module-panel__header">
+                    <i class="fa-solid fa-plus-circle" style="color:var(--primary); margin-right:8px;"></i> Buat Tagihan Baru
+                </div>
+                <div style="padding: 24px;">
+                    <form action="" method="POST">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                            <div>
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Pilih Warga</label>
+                                <select name="id_user" class="form-control" required style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:#fff;">
+                                    <option value="">-- Pilih Warga --</option>
+                                    <?php
+                                    $q_warga = mysqli_query($koneksi, "SELECT id, nama FROM users WHERE role = 'Warga' ORDER BY nama ASC");
+                                    while ($w = mysqli_fetch_assoc($q_warga)) {
+                                        echo "<option value='{$w['id']}'>{$w['nama']}</option>";
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Bulan & Tahun</label>
+                                <input type="month" name="bulan_tahun" class="form-control" required value="<?php echo date('Y-m'); ?>" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:#fff;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Tanggal Tagihan</label>
+                                <input type="date" name="tanggal_tagihan" class="form-control" required value="<?php echo date('Y-m-d'); ?>" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:#fff;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Jumlah (Rp)</label>
+                                <input type="number" name="jumlah" class="form-control" value="50000" required style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:#fff;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-weight:700; color:var(--text); margin-bottom:6px; font-size:0.9rem;">Status Awal</label>
+                                <select name="status_bayar" class="form-control" style="width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:#fff;">
+                                    <option value="belum">Belum Bayar</option>
+                                    <option value="lunas">Sudah Lunas</option>
+                                    <option value="telat">Telat</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button type="submit" name="simpan_tagihan" class="primary-btn">
+                            <i class="fa-solid fa-paper-plane"></i> Kirim Tagihan
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Tabel Daftar Tagihan -->
+            <div class="module-panel">
+                <div class="module-panel__header">
+                    <i class="fa-solid fa-list-check" style="color:var(--primary); margin-right:8px;"></i> Daftar Tagihan & Pembayaran Warga
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="text-align: center; width: 50px;">No</th>
+                                <th>Nama Warga</th>
+                                <th>Bulan / Tanggal</th>
+                                <th style="text-align: right;">Nominal</th>
+                                <th style="text-align: center;">Status</th>
+                                <th style="text-align: center;">Aksi Update</th>
+                                <th style="text-align: center; width: 60px;">Hapus</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $no = 1;
+                            $q_tagihan = mysqli_query($koneksi, "SELECT t.*, u.nama FROM tagihan t JOIN users u ON t.id_user = u.id ORDER BY t.id_tagihan DESC");
                             
-                            <td>
-                                <form action="" method="POST" style="display: flex; gap: 5px;">
-                                    <input type="hidden" name="id_tagihan" value="<?= $row['id_tagihan']; ?>">
-                                    <select name="status_bayar" style="padding: 5px; border-radius: 3px; border: 1px solid #ccc;">
-                                        <option value="belum" <?= ($row['status_bayar'] == 'belum') ? 'selected' : ''; ?>>Belum</option>
-                                        <option value="lunas" <?= ($row['status_bayar'] == 'lunas') ? 'selected' : ''; ?>>Lunas</option>
-                                        <option value="telat" <?= ($row['status_bayar'] == 'telat') ? 'selected' : ''; ?>>Telat</option>
-                                    </select>
-                                    <button type="submit" name="update_status" style="background:#f6c23e; border:none; padding:5px 10px; border-radius:3px; cursor:pointer;"><i class="fa-solid fa-save"></i></button>
-                                </form>
-                            </td>
-                            <td>
-                                <a href="?hapus=<?= $row['id_tagihan']; ?>" onclick="return confirm('Yakin hapus tagihan ini?');" style="color: #e74a3b;"><i class="fa-solid fa-trash"></i></a>
-                            </td>
-                        </tr>
-                        <?php 
+                            if (mysqli_num_rows($q_tagihan) > 0) {
+                                while ($row = mysqli_fetch_assoc($q_tagihan)) {
+                                    $status = strtolower($row['status_bayar']);
+                            ?>
+                            <tr>
+                                <td style="text-align: center; color: var(--text-soft); font-weight: 600;"><?= $no++; ?></td>
+                                <td style="font-weight: 700; color: var(--text);"><?= htmlspecialchars($row['nama']); ?></td>
+                                <td>
+                                    <div style="font-weight: 600;"><?= htmlspecialchars($row['bulan_tahun']); ?></div>
+                                    <small style="color: var(--text-soft);"><?= !empty($row['tanggal_tagihan']) ? date('d-m-Y', strtotime($row['tanggal_tagihan'])) : '-'; ?></small>
+                                </td>
+                                <td style="text-align: right; font-weight: 800; color: var(--text);">
+                                    Rp <?= number_format($row['jumlah'], 0, ',', '.'); ?>
+                                </td>
+                                <td style="text-align: center;">
+                                    <?php if ($status === 'lunas'): ?>
+                                        <span class="status-badge status-badge--approved">LUNAS</span>
+                                    <?php elseif ($status === 'telat'): ?>
+                                        <span class="status-badge status-badge--rejected">TELAT</span>
+                                    <?php else: ?>
+                                        <span class="status-badge status-badge--pending">BELUM</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align: center;">
+                                    <form action="" method="POST" style="display: inline-flex; align-items:center; gap: 6px;">
+                                        <input type="hidden" name="id_tagihan" value="<?= $row['id_tagihan']; ?>">
+                                        <select name="status_bayar" style="padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); font-size: 0.82rem; background:#fff;">
+                                            <option value="belum" <?= ($status === 'belum') ? 'selected' : ''; ?>>Belum</option>
+                                            <option value="lunas" <?= ($status === 'lunas') ? 'selected' : ''; ?>>Lunas</option>
+                                            <option value="telat" <?= ($status === 'telat') ? 'selected' : ''; ?>>Telat</option>
+                                        </select>
+                                        <button type="submit" name="update_status" class="ghost-btn" style="padding: 5px 10px; font-size: 0.82rem;" title="Simpan Perubahan">
+                                            <i class="fa-solid fa-floppy-disk" style="color: var(--primary);"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                <td style="text-align: center;">
+                                    <a href="?hapus=<?= $row['id_tagihan']; ?>" onclick="return confirm('Yakin ingin menghapus tagihan ini?');" style="color: #ef4444; font-size: 1rem; padding: 6px;" title="Hapus Tagihan">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            <?php 
+                                }
+                            } else {
+                                echo "<tr><td colspan='7' class='empty-state'>Belum ada data tagihan.</td></tr>";
                             }
-                        } else {
-                            echo "<tr><td colspan='7' style='text-align:center;'>Belum ada data tagihan.</td></tr>";
-                        }
-                        ?>
-                    </tbody>
-                </table>
+                            ?>
+                        </tbody>
+                    </table>
+                </div>
             </div>
-
         </main>
     </div>
 </div>
 
-<script>
-    document.addEventListener("DOMContentLoaded", function() {
-        const toggleBtn = document.getElementById("toggle-sidebar");
-        const sidebar = document.getElementById("sidebar");
-        const mainContent = document.getElementById("main-content");
-        if (toggleBtn && sidebar && mainContent) {
-            toggleBtn.addEventListener("click", function(e) {
-                e.preventDefault(); 
-                if (sidebar.style.marginLeft === "-260px") {
-                    sidebar.style.marginLeft = "0px";
-                    mainContent.style.width = "calc(100% - 260px)";
-                } else {
-                    sidebar.style.marginLeft = "-260px";
-                    mainContent.style.width = "100%";
-                }
-            });
-        }
-    });
-</script>
-</body>
-</html>
+<?php include '../includes/footer.php'; ?>
