@@ -111,6 +111,11 @@ if (isset($_POST['login'])) {
             <button type="submit" name="login">Masuk</button>
             <a href="lupa_password.php">Lupa Password?</a>
             <p>Belum punya akun? <a href="register.php">Daftar di sini</a></p>
+            <p style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #cbd5e1; font-size: 0.85rem;">
+                <a href="../index.php" style="color: #0284c7; text-decoration: none; font-weight: 600;">
+                    &larr; Kembali ke Beranda & Panduan
+                </a>
+            </p>
         </form>
     </div>
 

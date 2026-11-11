@@ -457,7 +457,7 @@ if (isset($_POST['register'])) {
                 </button>
             </form>
 
-            <p class="register-footer">Sudah memiliki akun warga? <a href="login.php">Masuk di sini</a></p>
+            <p class="register-footer">Sudah memiliki akun warga? <a href="login.php">Masuk di sini</a> | <a href="../index.php">&larr; Kembali ke Beranda & Panduan</a></p>
         </div>
     </div>
 
