@@ -2,15 +2,17 @@
 /*
   Skrip untuk membuat 100 akun dummy ke tabel `users`.
   Menyesuaikan struktur pada `register.php`: (nama, username, email, password, alamat, kelamin, no_hp, role)
-  Password disimpan dalam bentuk plain text agar kompatibel dengan mekanisme login saat ini.
-  Jalankan skrip ini lewat browser atau CLI: php create_dummy_accounts.php
+  Password disimpan dalam bentuk hash.
+  Jalankan skrip ini lewat CLI: php create_dummy_accounts.php
 */
 
-include 'Koneksi.php';
-
-function sanitize($k, $s){
-    return mysqli_real_escape_string($k, $s);
+// Hanya boleh dijalankan lewat CLI, tidak lewat browser
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    die('Akses ditolak. Script ini hanya dapat dijalankan melalui command line.');
 }
+
+include 'Koneksi.php';
 
 $first_male = ["Agus","Budi","Joko","Andi","Rudi","Eko","Hendra","Dedi","Fajar","Rian","Satria","Yudi","Iwan","Teguh","Bayu","Rizky","Ahmad","Aris","Darma","Wawan"];
 $first_female = ["Siti","Ayu","Rina","Dewi","Nina","Sari","Wati","Indah","Maya","Yuni","Lia","Fitri","Rizka","Yulia","Ririn","Nadia","Putri","Ika","Wulan","Ria"];
@@ -19,6 +21,13 @@ $streets = ["Jalan"];
 
 $total = 100;
 $inserted = 0;
+
+// Prepare statement sekali untuk semua insert
+$stmt = mysqli_prepare($koneksi, "INSERT INTO users (nama, username, email, password, alamat, kelamin, no_hp, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+
+if (!$stmt) {
+    die("Gagal mempersiapkan data. Silakan coba lagi.");
+}
 
 // alternate genders to ensure mix
 for ($i=1; $i<=$total; $i++){
@@ -44,28 +53,23 @@ for ($i=1; $i<=$total; $i++){
     $kelamin = $isMale ? 'Laki-laki' : 'Perempuan';
     $no_hp = '08' . rand(100000000, 999999999);
     $password = 'Password123';
+    $password_hash = password_hash($password, PASSWORD_DEFAULT);
     $role = 'Warga';
 
-    $n = sanitize($koneksi, $nama);
-    $u = sanitize($koneksi, $username);
-    $e = sanitize($koneksi, $email);
-    $p = sanitize($koneksi, $password);
-    $a = sanitize($koneksi, $alamat);
-    $k = sanitize($koneksi, $kelamin);
-    $hp = sanitize($koneksi, $no_hp);
-    $r = sanitize($koneksi, $role);
-
-    $sql = "INSERT INTO users (nama, username, email, password, alamat, kelamin, no_hp, role) VALUES ('$n', '$u', '$e', '$p', '$a', '$k', '$hp', '$r')";
-
-    $res = mysqli_query($koneksi, $sql);
-    if ($res) $inserted++;
+    mysqli_stmt_bind_param($stmt, "ssssssss", $nama, $username, $email, $password_hash, $alamat, $kelamin, $no_hp, $role);
+    
+    if (mysqli_stmt_execute($stmt)) {
+        $inserted++;
+    }
 }
+
+mysqli_stmt_close($stmt);
 
 echo "Selesai. Total berhasil dimasukkan: $inserted / $total\n";
 echo "Password default semua akun: Password123\n";
 
 // optional: tampilkan 10 contoh akun
-$result = mysqli_query($koneksi, "SELECT nama, username, email, alamat, kelamin, no_hp FROM users ORDER BY id DESC LIMIT 10");
+$result = db_query($koneksi, "SELECT nama, username, email, alamat, kelamin, no_hp FROM users ORDER BY id DESC LIMIT 10");
 if ($result && mysqli_num_rows($result) > 0){
     echo "\nContoh 10 akun terakhir:\n";
     while($row = mysqli_fetch_assoc($result)){

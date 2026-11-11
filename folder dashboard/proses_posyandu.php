@@ -2,28 +2,22 @@
 
 include "../Koneksi.php";
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['nama'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-    exit();
-}
+require_admin();
 
 header('Content-Type: application/json; charset=utf-8');
 
 $nama_user = $_SESSION['nama'];
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '$nama_user'");
-$data_user = mysqli_fetch_assoc($query_user);
-$id_user = $data_user['id'];
-$role = strtoupper($data_user['role']);
+$res_user = db_query($koneksi, "SELECT * FROM users WHERE nama = ?", "s", $nama_user);
+$data_user = ($res_user && mysqli_num_rows($res_user) > 0) ? mysqli_fetch_assoc($res_user) : [];
+$id_user = (int)($data_user['id'] ?? 0);
+$role = strtoupper($data_user['role'] ?? 'WARGA');
 
-// Hanya admin yang bisa akses
-if ($role !== 'ADMIN') {
-    echo json_encode(['success' => false, 'message' => 'Hanya admin yang dapat mengakses']);
+// Validasi CSRF untuk action yang mengubah data
+$mutating_actions = ['add', 'edit', 'delete'];
+if (in_array($action, $mutating_actions) && !csrf_check()) {
+    echo json_encode(['success' => false, 'message' => 'Token keamanan tidak valid']);
     exit();
 }
 
@@ -51,48 +45,51 @@ if (mysqli_num_rows($check_posyandu_col) === 0) {
 }
 
 if ($action === 'add') {
-    $id_warga = isset($_POST['id_warga']) ? intval($_POST['id_warga']) : 0;
-    $nama_bayi = isset($_POST['nama_bayi']) ? mysqli_real_escape_string($koneksi, $_POST['nama_bayi']) : '';
-    $jenis_kelamin = isset($_POST['jenis_kelamin']) ? mysqli_real_escape_string($koneksi, $_POST['jenis_kelamin']) : 'Laki-laki';
-    $usia_bulan = isset($_POST['usia_bulan']) ? intval($_POST['usia_bulan']) : 0;
+    $id_warga = isset($_POST['id_warga']) ? (int)$_POST['id_warga'] : 0;
+    $nama_bayi = isset($_POST['nama_bayi']) ? $_POST['nama_bayi'] : '';
+    $jenis_kelamin = isset($_POST['jenis_kelamin']) ? $_POST['jenis_kelamin'] : 'Laki-laki';
+    $usia_bulan = isset($_POST['usia_bulan']) ? (int)$_POST['usia_bulan'] : 0;
     $berat_badan = isset($_POST['berat_badan']) ? floatval($_POST['berat_badan']) : 0;
     $tinggi_badan = isset($_POST['tinggi_badan']) ? floatval($_POST['tinggi_badan']) : 0;
     $lingkar_kepala = isset($_POST['lingkar_kepala']) ? floatval($_POST['lingkar_kepala']) : 0;
-    $status_kesehatan = isset($_POST['status_kesehatan']) ? mysqli_real_escape_string($koneksi, $_POST['status_kesehatan']) : '';
-    $catatan = isset($_POST['catatan']) ? mysqli_real_escape_string($koneksi, $_POST['catatan']) : '';
-    $pemeriksaan_oleh = isset($_POST['pemeriksaan_oleh']) ? mysqli_real_escape_string($koneksi, $_POST['pemeriksaan_oleh']) : '';
+    $status_kesehatan = isset($_POST['status_kesehatan']) ? $_POST['status_kesehatan'] : '';
+    $catatan = isset($_POST['catatan']) ? $_POST['catatan'] : '';
+    $pemeriksaan_oleh = isset($_POST['pemeriksaan_oleh']) ? $_POST['pemeriksaan_oleh'] : '';
 
     if (empty($nama_bayi) || $usia_bulan < 0 || $berat_badan <= 0) {
         echo json_encode(['success' => false, 'message' => 'Data tidak lengkap']);
         exit();
     }
 
-    $query_insert = "INSERT INTO posyandu (id_warga, nama_bayi, jenis_kelamin, usia_bulan, berat_badan, tinggi_badan, lingkar_kepala, status_kesehatan, catatan, pemeriksaan_oleh) 
-                    VALUES ('$id_warga', '$nama_bayi', '$jenis_kelamin', '$usia_bulan', '$berat_badan', '$tinggi_badan', '$lingkar_kepala', '$status_kesehatan', '$catatan', '$pemeriksaan_oleh')";
+    $stmt = mysqli_prepare($koneksi, "INSERT INTO posyandu (id_warga, nama_bayi, jenis_kelamin, usia_bulan, berat_badan, tinggi_badan, lingkar_kepala, status_kesehatan, catatan, pemeriksaan_oleh) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    mysqli_stmt_bind_param($stmt, "issidddss", $id_warga, $nama_bayi, $jenis_kelamin, $usia_bulan, $berat_badan, $tinggi_badan, $lingkar_kepala, $status_kesehatan, $catatan, $pemeriksaan_oleh);
     
-    if (mysqli_query($koneksi, $query_insert)) {
+    if (mysqli_stmt_execute($stmt)) {
         echo json_encode(['success' => true, 'message' => 'Data berhasil disimpan']);
     } else {
-        echo json_encode(['success' => false, 'message' => 'Gagal menyimpan data: ' . mysqli_error($koneksi)]);
+        echo json_encode(['success' => false, 'message' => 'Gagal menyimpan data. Silakan coba lagi.']);
     }
+    mysqli_stmt_close($stmt);
     exit();
 }
 
 if ($action === 'delete') {
-    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     
     if ($id <= 0) {
         echo json_encode(['success' => false, 'message' => 'ID tidak valid']);
         exit();
     }
 
-    $query_delete = "DELETE FROM posyandu WHERE id='$id'";
+    $stmt = mysqli_prepare($koneksi, "DELETE FROM posyandu WHERE id = ?");
+    mysqli_stmt_bind_param($stmt, "i", $id);
     
-    if (mysqli_query($koneksi, $query_delete)) {
+    if (mysqli_stmt_execute($stmt)) {
         echo json_encode(['success' => true, 'message' => 'Data berhasil dihapus']);
     } else {
         echo json_encode(['success' => false, 'message' => 'Gagal menghapus data']);
     }
+    mysqli_stmt_close($stmt);
     exit();
 }
 

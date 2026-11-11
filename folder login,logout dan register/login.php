@@ -1,9 +1,5 @@
 <?php
 
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-
 include '../Koneksi.php'; 
 session_start();
 
@@ -11,41 +7,64 @@ $error_message = "";
 
 if (isset($_POST['login'])) {
     
-    $username = mysqli_real_escape_string($koneksi, $_POST['username']);
-    $password = mysqli_real_escape_string($koneksi, $_POST['password']);
+    $username = trim($_POST['username']);
+    $password = trim($_POST['password']);
 
-    
     if (!$koneksi) {
-        $error_message = "Koneksi Database Gagal: " . mysqli_connect_error();
+        $error_message = "Koneksi database gagal. Silakan coba lagi.";
     } else {
         
-        $query = mysqli_query($koneksi, "SELECT * FROM users WHERE (username='$username' OR nama='$username') AND password='$password'");
+        $stmt = mysqli_prepare($koneksi, "SELECT id, nama, username, email, password, role, foto FROM users WHERE username = ? OR nama = ? LIMIT 1");
         
-        if (!$query) {
-            $error_message = "Query Error: " . mysqli_error($koneksi);
+        if (!$stmt) {
+            $error_message = "Login gagal. Silakan coba lagi.";
         } else {
-            if (mysqli_num_rows($query) > 0) {
-                $data = mysqli_fetch_assoc($query);
+            mysqli_stmt_bind_param($stmt, "ss", $username, $username);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            
+            if ($result && mysqli_num_rows($result) > 0) {
+                $data = mysqli_fetch_assoc($result);
                 
+                $password_valid = false;
                 
+                if (password_verify($password, $data['password'])) {
+                    $password_valid = true;
+                } elseif (hash_equals($data['password'], $password)) {
+                    $password_valid = true;
+                    
+                    $new_hash = password_hash($password, PASSWORD_DEFAULT);
+                    $update_stmt = mysqli_prepare($koneksi, "UPDATE users SET password = ? WHERE id = ? LIMIT 1");
+                    if ($update_stmt) {
+                        mysqli_stmt_bind_param($update_stmt, "si", $new_hash, $data['id']);
+                        mysqli_stmt_execute($update_stmt);
+                        mysqli_stmt_close($update_stmt);
+                    }
+                }
                 
-                
-                $_SESSION['nama'] = $data['nama'];
-                $_SESSION['role'] = $data['role'];
-                $_SESSION['email'] = $data['email']; 
-                $_SESSION['foto'] = $data['foto']; 
-                $_SESSION['id'] = $data['id'];
-                $_SESSION['id_user'] = $data['id'];
+                if ($password_valid) {
+                    session_regenerate_id(true);
+                    
+                    $_SESSION['nama'] = $data['nama'];
+                    $_SESSION['role'] = $data['role'];
+                    $_SESSION['email'] = $data['email']; 
+                    $_SESSION['foto'] = $data['foto']; 
+                    $_SESSION['id'] = $data['id'];
+                    $_SESSION['id_user'] = $data['id'];
 
-                // Flash welcome message to show on dashboard after login
-                $_SESSION['flash_welcome'] = "Selamat datang RT RW Digital Bersatu";
+                    $_SESSION['flash_welcome'] = "Selamat datang RT RW Digital Bersatu";
 
-                header("Location: ../folder dashboard/dashboard.php");
-                exit();
+                    mysqli_stmt_close($stmt);
+                    header("Location: ../folder dashboard/dashboard.php");
+                    exit();
+                } else {
+                    $error_message = "Login Gagal! Username atau Password salah.";
+                }
             } else {
-                
                 $error_message = "Login Gagal! Username atau Password salah.";
             }
+            
+            mysqli_stmt_close($stmt);
         }
     }
 }

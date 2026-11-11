@@ -45,7 +45,7 @@ $role_session = isset($_SESSION['role']) ? strtoupper($_SESSION['role']) : 'WARG
 $id_tagihan = 0;
 if (isset($_GET['pay_tagihan'])) {
     $id_tagihan = (int)$_GET['pay_tagihan'];
-    $q_tagihan = mysqli_query($koneksi, "SELECT t.*, u.nama, u.id as user_id FROM tagihan t JOIN users u ON t.id_user = u.id WHERE t.id_tagihan = '$id_tagihan' LIMIT 1");
+    $q_tagihan = db_query($koneksi, "SELECT t.*, u.nama, u.id as user_id FROM tagihan t JOIN users u ON t.id_user = u.id WHERE t.id_tagihan = ? LIMIT 1", "i", $id_tagihan);
     if ($q_tagihan && mysqli_num_rows($q_tagihan) > 0) {
         $tagihan_data = mysqli_fetch_assoc($q_tagihan);
         $_POST['action'] = 'preview_payment';
@@ -60,6 +60,12 @@ if (isset($_GET['pay_tagihan'])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Validasi CSRF token untuk semua POST request
+    if (!csrf_check()) {
+        echo '<div style="font-family:sans-serif;padding:30px;text-align:center;"><h3>Token keamanan tidak valid. Silakan coba lagi.</h3><a href="input_kas.php">Kembali</a></div>';
+        exit();
+    }
+
     $action = $_POST['action'] ?? '';
 
     // =========================================================================
@@ -87,9 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $user_id_val = (int)($_SESSION['id_user'] ?? $_SESSION['id'] ?? 0);
 
         // Catat order ke transaksi_pembayaran
-        $sql_order = "INSERT INTO transaksi_pembayaran (order_id, id_user, nama_warga, jenis_kas, keterangan, jumlah, id_tagihan, metode, status) 
-                      VALUES ('$order_id', '$user_id_val', '$nama_warga', '$jenis_kas', '$keterangan', '$jumlah_kas', " . ($id_tagihan > 0 ? "'$id_tagihan'" : "NULL") . ", 'QRIS', 'pending')";
-        mysqli_query($koneksi, $sql_order);
+        $id_tagihan_val = ($id_tagihan > 0) ? $id_tagihan : null;
+        $stmt_order = mysqli_prepare($koneksi, "INSERT INTO transaksi_pembayaran (order_id, id_user, nama_warga, jenis_kas, keterangan, jumlah, id_tagihan, metode, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'QRIS', 'pending')");
+        mysqli_stmt_bind_param($stmt_order, "sisssii", $order_id, $user_id_val, $nama_warga, $jenis_kas, $keterangan, $jumlah_kas, $id_tagihan_val);
+        mysqli_stmt_execute($stmt_order);
+        mysqli_stmt_close($stmt_order);
 
         // Cari file logo QRIS fisik
         $qris_candidates = ['logo_Qris.jpeg', 'qris.png', 'qris.jpg', 'qris.jpeg'];
@@ -432,51 +440,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
-        $allowed = ['image/jpeg','image/jpg','image/png'];
-        $file_type = mime_content_type($_FILES['bukti_pembayaran']['tmp_name']);
-        if (!in_array($file_type, $allowed, true)) {
-            echo '<h3>Format bukti pembayaran tidak valid. Gunakan JPG, JPEG, atau PNG.</h3>';
+        $upload_result = secure_image_upload($_FILES['bukti_pembayaran'], 'bukti_kas');
+        
+        if (!$upload_result['success']) {
+            echo '<h3>' . htmlspecialchars($upload_result['message']) . '</h3>';
             exit();
         }
+
+        $filename = $upload_result['filename'];
 
         $uploadDir = dirname(__DIR__) . '/img/bukti_kas';
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0755, true);
         }
 
-        $extension = pathinfo($_FILES['bukti_pembayaran']['name'], PATHINFO_EXTENSION);
-        $filename = 'bukti_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $extension;
         $destination = $uploadDir . '/' . $filename;
 
         if (!move_uploaded_file($_FILES['bukti_pembayaran']['tmp_name'], $destination)) {
-            echo '<h3>Gagal mengunggah bukti pembayaran. Silakan coba lagi.</h3>';
+            echo '<h3>Gagal menyimpan bukti pembayaran. Silakan coba lagi.</h3>';
             exit();
         }
 
         $tanggal = date("Y-m-d");
         $jumlah_final = ($jenis_kas === 'keluar') ? -abs($jumlah_kas) : abs($jumlah_kas);
 
-        $sql = "INSERT INTO keuangan (nama_warga, jenis, keterangan, jumlah, tanggal) VALUES ('$nama_warga', '$jenis_kas', '$keterangan', '$jumlah_final', '$tanggal')";
-        $eksekusi = mysqli_query($koneksi, $sql);
+        $stmt_keuangan = mysqli_prepare($koneksi, "INSERT INTO keuangan (nama_warga, jenis, keterangan, jumlah, tanggal) VALUES (?, ?, ?, ?, ?)");
+        mysqli_stmt_bind_param($stmt_keuangan, "sssis", $nama_warga, $jenis_kas, $keterangan, $jumlah_final, $tanggal);
+        $eksekusi = mysqli_stmt_execute($stmt_keuangan);
 
         if (!$eksekusi) {
-            echo '<h3>Gagal menyimpan transaksi: ' . mysqli_error($koneksi) . '</h3>';
+            echo '<h3>Gagal menyimpan transaksi.</h3>';
+            mysqli_stmt_close($stmt_keuangan);
             exit();
         }
 
         $id_keuangan = mysqli_insert_id($koneksi);
-        $sql_bukti = "INSERT INTO bukti_kas (id_keuangan, filename) VALUES ('" . intval($id_keuangan) . "', '" . mysqli_real_escape_string($koneksi, $filename) . "')";
-        mysqli_query($koneksi, $sql_bukti);
+        mysqli_stmt_close($stmt_keuangan);
+        
+        $stmt_bukti = mysqli_prepare($koneksi, "INSERT INTO bukti_kas (id_keuangan, filename) VALUES (?, ?)");
+        mysqli_stmt_bind_param($stmt_bukti, "is", $id_keuangan, $filename);
+        mysqli_stmt_execute($stmt_bukti);
+        mysqli_stmt_close($stmt_bukti);
 
         // Jika tagihan, update status lunas
         if ($id_tagihan > 0) {
-            mysqli_query($koneksi, "UPDATE tagihan SET status_bayar = 'lunas', tgl_update = CURRENT_TIMESTAMP WHERE id_tagihan = '$id_tagihan'");
+            $stmt_tagihan = mysqli_prepare($koneksi, "UPDATE tagihan SET status_bayar = 'lunas', tgl_update = CURRENT_TIMESTAMP WHERE id_tagihan = ?");
+            mysqli_stmt_bind_param($stmt_tagihan, "i", $id_tagihan);
+            mysqli_stmt_execute($stmt_tagihan);
+            mysqli_stmt_close($stmt_tagihan);
         }
 
         // Update status order jika ada
         if (!empty($order_id)) {
             $now = date('Y-m-d H:i:s');
-            mysqli_query($koneksi, "UPDATE transaksi_pembayaran SET status = 'success', paid_at = '$now' WHERE order_id = '$order_id'");
+            $stmt_order_upd = mysqli_prepare($koneksi, "UPDATE transaksi_pembayaran SET status = 'success', paid_at = ? WHERE order_id = ?");
+            mysqli_stmt_bind_param($stmt_order_upd, "ss", $now, $order_id);
+            mysqli_stmt_execute($stmt_order_upd);
+            mysqli_stmt_close($stmt_order_upd);
         }
 
         header('Location: input_kas.php?status=berhasil');

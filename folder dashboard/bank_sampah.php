@@ -13,28 +13,49 @@ if (!isset($_SESSION['nama'])) {
 $nama_user = $_SESSION['nama'];
 $role = strtoupper($_SESSION['role'] ?? 'WARGA');
 
-if ($role === 'ADMIN' && isset($_GET['approve'])) {
-    $id = intval($_GET['approve']);
+if ($role === 'ADMIN' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['approve_sampah'])) {
+    if (!csrf_check()) {
+        echo "<script>alert('Token keamanan tidak valid.'); window.location='bank_sampah.php';</script>";
+        exit();
+    }
+    $id = intval($_POST['id']);
     if ($id > 0) {
-        mysqli_query($koneksi, "UPDATE bank_sampah SET status='approved', tanggal_diproses=NOW() WHERE id='$id'");
+        $stmt = mysqli_prepare($koneksi, "UPDATE bank_sampah SET status='approved', tanggal_diproses=NOW() WHERE id=?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
     }
     header('Location: bank_sampah.php');
     exit();
 }
 
-if ($role === 'ADMIN' && isset($_GET['reject'])) {
-    $id = intval($_GET['reject']);
+if ($role === 'ADMIN' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reject_sampah'])) {
+    if (!csrf_check()) {
+        echo "<script>alert('Token keamanan tidak valid.'); window.location='bank_sampah.php';</script>";
+        exit();
+    }
+    $id = intval($_POST['id']);
     if ($id > 0) {
-        mysqli_query($koneksi, "UPDATE bank_sampah SET status='rejected', tanggal_diproses=NOW() WHERE id='$id'");
+        $stmt = mysqli_prepare($koneksi, "UPDATE bank_sampah SET status='rejected', tanggal_diproses=NOW() WHERE id=?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
     }
     header('Location: bank_sampah.php');
     exit();
 }
 
-if ($role === 'ADMIN' && isset($_GET['delete'])) {
-    $id = intval($_GET['delete']);
+if ($role === 'ADMIN' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_sampah'])) {
+    if (!csrf_check()) {
+        echo "<script>alert('Token keamanan tidak valid.'); window.location='bank_sampah.php';</script>";
+        exit();
+    }
+    $id = intval($_POST['id']);
     if ($id > 0) {
-        mysqli_query($koneksi, "DELETE FROM bank_sampah WHERE id='$id'");
+        $stmt = mysqli_prepare($koneksi, "DELETE FROM bank_sampah WHERE id=?");
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
     }
     header('Location: bank_sampah.php');
     exit();
@@ -222,6 +243,7 @@ include '../includes/header.php';
         </div>
 
         <form id="bankSampahForm" onsubmit="submitBankSampah(event)">
+            <?php echo csrf_field(); ?>
             <div class="form-grid">
                 <?php if ($role === 'ADMIN'): ?>
                     <div class="form-field full-width">
@@ -406,19 +428,34 @@ include '../includes/header.php';
 
     function approveEntry(id) {
         if (confirm('Setujui data setoran sampah ini?')) {
-            window.location.href = 'bank_sampah.php?approve=' + id;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'bank_sampah.php';
+            form.innerHTML = `<?php echo csrf_field(); ?><input type="hidden" name="id" value="${id}"><input type="hidden" name="approve_sampah" value="1">`;
+            document.body.appendChild(form);
+            form.submit();
         }
     }
 
     function rejectEntry(id) {
         if (confirm('Tolak data setoran sampah ini?')) {
-            window.location.href = 'bank_sampah.php?reject=' + id;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'bank_sampah.php';
+            form.innerHTML = `<?php echo csrf_field(); ?><input type="hidden" name="id" value="${id}"><input type="hidden" name="reject_sampah" value="1">`;
+            document.body.appendChild(form);
+            form.submit();
         }
     }
 
     function deleteEntry(id) {
         if (confirm('Hapus riwayat sampah ini?')) {
-            window.location.href = 'bank_sampah.php?delete=' + id;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'bank_sampah.php';
+            form.innerHTML = `<?php echo csrf_field(); ?><input type="hidden" name="id" value="${id}"><input type="hidden" name="delete_sampah" value="1">`;
+            document.body.appendChild(form);
+            form.submit();
         }
     }
 </script>

@@ -47,10 +47,17 @@ if (mysqli_num_rows($check_posyandu_col) === 0) {
     mysqli_query($koneksi, "ALTER TABLE posyandu ADD COLUMN jenis_kelamin ENUM('Laki-laki','Perempuan') DEFAULT 'Laki-laki'");
 }
 
-if (isset($_GET['delete'])) {
-    $delete_id = intval($_GET['delete']);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_posyandu'])) {
+    if (!csrf_check()) {
+        echo "<script>alert('Token keamanan tidak valid.'); window.location='posyandu.php';</script>";
+        exit();
+    }
+    $delete_id = intval($_POST['id']);
     if ($delete_id > 0) {
-        mysqli_query($koneksi, "DELETE FROM posyandu WHERE id = '$delete_id'");
+        $stmt = mysqli_prepare($koneksi, "DELETE FROM posyandu WHERE id = ?");
+        mysqli_stmt_bind_param($stmt, "i", $delete_id);
+        mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
         header('Location: posyandu.php');
         exit();
     }
@@ -192,6 +199,7 @@ include '../includes/header.php';
         </div>
 
         <form id="posyanduForm" onsubmit="submitPosyandu(event)">
+            <?php echo csrf_field(); ?>
             <div class="form-grid">
                 <div class="form-field full-width">
                     <label for="posyandu_id_warga"><i class="fa-regular fa-user"></i> Nama Orang Tua / Warga</label>
@@ -516,7 +524,12 @@ include '../includes/header.php';
 
     function deleteRecord(id) {
         if (confirm('Hapus data pemeriksaan ini?')) {
-            window.location.href = 'posyandu.php?delete=' + id;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'posyandu.php';
+            form.innerHTML = `<?php echo csrf_field(); ?><input type="hidden" name="id" value="${id}"><input type="hidden" name="delete_posyandu" value="1">`;
+            document.body.appendChild(form);
+            form.submit();
         }
     }
 </script>

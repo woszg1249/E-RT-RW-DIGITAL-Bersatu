@@ -1,12 +1,7 @@
 <?php
 $session_path = dirname(__FILE__);
-session_start();
 include '../Koneksi.php';
-
-if (!isset($_SESSION['id'])) {
-    header('Location: ../folder login,logout dan register/login.php');
-    exit();
-}
+require_login();
 
 $user_id = $_SESSION['id'];
 $nama_user = $_SESSION['nama'] ?? 'Warga RT06/RW19';
@@ -77,27 +72,28 @@ if (!mysqli_query($koneksi, $create_table_sql)) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_surat'])) {
-    $nama = mysqli_real_escape_string($koneksi, $_POST['nama']);
-    $jenis_surat = mysqli_real_escape_string($koneksi, $_POST['jenis_surat']);
-    $nik = mysqli_real_escape_string($koneksi, $_POST['nik']);
-    $ttl = mysqli_real_escape_string($koneksi, $_POST['ttl']);
-    $alamat = mysqli_real_escape_string($koneksi, $_POST['alamat']);
-    $tujuan = mysqli_real_escape_string($koneksi, $_POST['tujuan']);
-    $nama_rt = mysqli_real_escape_string($koneksi, $_POST['nama_rt']);
-    $nama_rw = mysqli_real_escape_string($koneksi, $_POST['nama_rw']);
-    $kelurahan = mysqli_real_escape_string($koneksi, $_POST['kelurahan']);
-    $kecamatan = mysqli_real_escape_string($koneksi, $_POST['kecamatan']);
-    $kota = mysqli_real_escape_string($koneksi, $_POST['kota']);
-    $tanggal_permohonan = mysqli_real_escape_string($koneksi, $_POST['tanggal_permohonan']);
-    $detail_usaha = mysqli_real_escape_string($koneksi, $_POST['detail_usaha']);
-    $keterangan = mysqli_real_escape_string($koneksi, $_POST['keterangan']);
+    $nama = trim($_POST['nama'] ?? '');
+    $jenis_surat = trim($_POST['jenis_surat'] ?? '');
+    $nik = trim($_POST['nik'] ?? '');
+    $ttl = trim($_POST['ttl'] ?? '');
+    $alamat = trim($_POST['alamat'] ?? '');
+    $tujuan = trim($_POST['tujuan'] ?? '');
+    $nama_rt = trim($_POST['nama_rt'] ?? '');
+    $nama_rw = trim($_POST['nama_rw'] ?? '');
+    $kelurahan = trim($_POST['kelurahan'] ?? '');
+    $kecamatan = trim($_POST['kecamatan'] ?? '');
+    $kota = trim($_POST['kota'] ?? '');
+    $tanggal_permohonan = trim($_POST['tanggal_permohonan'] ?? '');
+    $detail_usaha = trim($_POST['detail_usaha'] ?? '');
+    $keterangan = trim($_POST['keterangan'] ?? '');
 
     if (empty($nama) || empty($jenis_surat) || empty($alamat)) {
         $error_message = 'Mohon lengkapi nama, jenis surat, dan alamat.';
     } else {
-        $insert_sql = "INSERT INTO surat_pengajuan (id_user, nama, jenis_surat, nik, ttl, alamat, tujuan, nama_rt, nama_rw, kelurahan, kecamatan, kota, tanggal_permohonan, detail_usaha, keterangan) VALUES ('$user_id', '$nama', '$jenis_surat', '$nik', '$ttl', '$alamat', '$tujuan', '$nama_rt', '$nama_rw', '$kelurahan', '$kecamatan', '$kota', '$tanggal_permohonan', '$detail_usaha', '$keterangan')";
+        $stmt = mysqli_prepare($koneksi, "INSERT INTO surat_pengajuan (id_user, nama, jenis_surat, nik, ttl, alamat, tujuan, nama_rt, nama_rw, kelurahan, kecamatan, kota, tanggal_permohonan, detail_usaha, keterangan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        mysqli_stmt_bind_param($stmt, "issssssssssssss", $user_id, $nama, $jenis_surat, $nik, $ttl, $alamat, $tujuan, $nama_rt, $nama_rw, $kelurahan, $kecamatan, $kota, $tanggal_permohonan, $detail_usaha, $keterangan);
 
-        if (mysqli_query($koneksi, $insert_sql)) {
+        if (mysqli_stmt_execute($stmt)) {
             $success_message = 'Pengajuan surat berhasil di simpan. Silakan cetak atau tunggu proses RT/RW.';
             $preview_data = [
                 'nama' => $nama,
@@ -116,19 +112,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_surat'])) {
                 'keterangan' => $keterangan,
             ];
         } else {
-            $error_message = 'Gagal menyimpan pengajuan: ' . mysqli_error($koneksi);
+            $error_message = 'Gagal menyimpan pengajuan. Silakan coba lagi.';
         }
+        mysqli_stmt_close($stmt);
     }
 }
 
 $request_list = [];
-$list_sql = "SELECT * FROM surat_pengajuan WHERE id_user = '$user_id' ORDER BY created_at DESC";
-$result = mysqli_query($koneksi, $list_sql);
-if ($result) {
-    while ($row = mysqli_fetch_assoc($result)) {
-        $request_list[] = $row;
-    }
+$stmt = mysqli_prepare($koneksi, "SELECT * FROM surat_pengajuan WHERE id_user = ? ORDER BY created_at DESC");
+mysqli_stmt_bind_param($stmt, "i", $user_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+while ($row = mysqli_fetch_assoc($result)) {
+    $request_list[] = $row;
 }
+mysqli_stmt_close($stmt);
+
 $title = 'Pengajuan Surat Warga - RT RW Digital Bersatu';
 include '../includes/header.php';
 ?>

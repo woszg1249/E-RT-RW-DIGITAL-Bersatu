@@ -57,32 +57,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['simpan_tagihan'])) {
             header("Location: kelola_tagihan.php?success=1");
             exit();
         } else {
-            $form_error = "Gagal menyimpan tagihan: " . mysqli_error($koneksi);
+            $form_error = "Gagal menyimpan tagihan. Silakan coba lagi.";
         }
     } else {
         $form_error = "Semua field harus diisi dengan benar.";
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
-    $id_tagihan = isset($_POST['id_tagihan']) ? (int)$_POST['id_tagihan'] : 0;
-    $status_bayar = trim($_POST['status_bayar'] ?? 'belum');
-
-    if ($id_tagihan > 0) {
-        $sql = "UPDATE tagihan SET status_bayar = '" . mysqli_real_escape_string($koneksi, $status_bayar) . "', tgl_update = NOW() WHERE id_tagihan = '$id_tagihan'";
-        if (!mysqli_query($koneksi, $sql)) {
-            $form_error = "Gagal update status: " . mysqli_error($koneksi);
-        } else {
-            $form_success = "Status tagihan berhasil diperbarui.";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['hapus_tagihan'])) {
+    // Validasi CSRF token
+    if (!csrf_check()) {
+        $form_error = "Token keamanan tidak valid.";
+    } else {
+        $id_tagihan = (int)$_POST['id_tagihan'];
+        if ($id_tagihan > 0) {
+            $stmt = mysqli_prepare($koneksi, "DELETE FROM tagihan WHERE id_tagihan = ?");
+            mysqli_stmt_bind_param($stmt, "i", $id_tagihan);
+            if (mysqli_stmt_execute($stmt)) {
+                $form_success = "Tagihan berhasil dihapus.";
+            } else {
+                $form_error = "Gagal menghapus tagihan.";
+            }
+            mysqli_stmt_close($stmt);
         }
-    }
-}
-
-if (isset($_GET['hapus'])) {
-    $id_tagihan = (int)$_GET['hapus'];
-    if ($id_tagihan > 0) {
-        mysqli_query($koneksi, "DELETE FROM tagihan WHERE id_tagihan = '$id_tagihan'");
-        $form_success = "Tagihan berhasil dihapus.";
     }
 }
 
@@ -229,7 +226,8 @@ include '../includes/header.php';
                                     <?php endif; ?>
                                 </td>
                                 <td style="text-align: center;">
-                                    <form action="" method="POST" style="display: inline-flex; align-items:center; gap: 6px;">
+                                    <form action="proses_update_tagihan.php" method="POST" style="display: inline-flex; align-items:center; gap: 6px;">
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="id_tagihan" value="<?= $row['id_tagihan']; ?>">
                                         <select name="status_bayar" style="padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); font-size: 0.82rem; background:#fff;">
                                             <option value="belum" <?= ($status === 'belum') ? 'selected' : ''; ?>>Belum</option>
@@ -242,9 +240,13 @@ include '../includes/header.php';
                                     </form>
                                 </td>
                                 <td style="text-align: center;">
-                                    <a href="?hapus=<?= $row['id_tagihan']; ?>" onclick="return confirm('Yakin ingin menghapus tagihan ini?');" style="color: #ef4444; font-size: 1rem; padding: 6px;" title="Hapus Tagihan">
-                                        <i class="fa-solid fa-trash-can"></i>
-                                    </a>
+                                    <form action="" method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menghapus tagihan ini?');">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="id_tagihan" value="<?= $row['id_tagihan']; ?>">
+                                        <button type="submit" name="hapus_tagihan" style="background:none; border:none; cursor:pointer; color: #ef4444; font-size: 1rem; padding: 6px;" title="Hapus Tagihan">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </form>
                                 </td>
                             </tr>
                             <?php 

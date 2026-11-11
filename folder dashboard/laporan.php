@@ -1,25 +1,23 @@
 <?php
 include "../Koneksi.php"; 
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['nama'])) {
-    header("Location: ../folder login,logout dan register/login.php");
-    exit();
-}
+require_login();
 
 $nama_user = $_SESSION['nama'];
 $role_user = $_SESSION['role'] ?? 'WARGA';
 
-$q_masuk = mysqli_query($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah > 0");
-$d_masuk = mysqli_fetch_assoc($q_masuk);
+$stmt = mysqli_prepare($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah > 0");
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$d_masuk = mysqli_fetch_assoc($result);
 $total_masuk = $d_masuk['total'] ?? 0;
+mysqli_stmt_close($stmt);
 
-$q_keluar = mysqli_query($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah < 0");
-$d_keluar = mysqli_fetch_assoc($q_keluar);
+$stmt = mysqli_prepare($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah < 0");
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$d_keluar = mysqli_fetch_assoc($result);
 $total_keluar = abs($d_keluar['total'] ?? 0);
+mysqli_stmt_close($stmt);
 
 $saldo_akhir = $total_masuk - $total_keluar;
 
@@ -28,9 +26,12 @@ $items_per_page = 10;
 $current_page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 if ($current_page < 1) $current_page = 1;
 
-$count_query = mysqli_query($koneksi, "SELECT COUNT(*) AS total FROM keuangan");
-$count_data = mysqli_fetch_assoc($count_query);
+$stmt = mysqli_prepare($koneksi, "SELECT COUNT(*) AS total FROM keuangan");
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$count_data = mysqli_fetch_assoc($result);
 $total_records = $count_data['total'] ?? 0;
+mysqli_stmt_close($stmt);
 
 $total_pages = ceil($total_records / $items_per_page);
 if ($total_pages < 1) $total_pages = 1;
@@ -110,7 +111,10 @@ include '../includes/header.php';
                         <tbody>
                             <?php 
                             $no = $offset + 1;
-                            $data = mysqli_query($koneksi, "SELECT * FROM keuangan ORDER BY id DESC LIMIT $items_per_page OFFSET $offset");
+                            $stmt = mysqli_prepare($koneksi, "SELECT * FROM keuangan ORDER BY id DESC LIMIT ? OFFSET ?");
+                            mysqli_stmt_bind_param($stmt, "ii", $items_per_page, $offset);
+                            mysqli_stmt_execute($stmt);
+                            $data = mysqli_stmt_get_result($stmt);
                             
                             if (mysqli_num_rows($data) > 0) {
                                 while($d = mysqli_fetch_array($data)) { 
@@ -138,6 +142,7 @@ include '../includes/header.php';
                             } else {
                                 echo "<tr><td colspan='6' class='empty-state'>Belum ada transaksi kas yang dicatat.</td></tr>";
                             }
+                            mysqli_stmt_close($stmt);
                             ?>
                         </tbody>
                     </table>

@@ -1,44 +1,60 @@
 <?php
+session_start();
 include '../Koneksi.php'; 
 
-$identifier = mysqli_real_escape_string($koneksi, $_POST['identifier'] ?? $_GET['identifier'] ?? '');
 $message = "";
 
-if ($identifier === '') {
-    echo "<script>alert('Data tidak valid. Silakan ulangi proses lupa password.'); window.location.href = 'lupa_password.php';</script>";
+if (!isset($_SESSION['reset_user_id']) || !isset($_SESSION['reset_user_name']) || !isset($_SESSION['reset_timestamp'])) {
+    echo "<script>alert('Sesi reset password tidak valid. Silakan mulai ulang dari lupa password.'); window.location.href = 'lupa_password.php';</script>";
     exit();
 }
 
-if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
-    $user_check = mysqli_query($koneksi, "SELECT * FROM users WHERE email='$identifier'");
-    $label = 'email';
-} else {
-    $user_check = mysqli_query($koneksi, "SELECT * FROM users WHERE no_hp='$identifier'");
-    $label = 'telepon';
-}
+$user_id = $_SESSION['reset_user_id'];
+$user_name = $_SESSION['reset_user_name'];
+$reset_time = $_SESSION['reset_timestamp'];
 
-if (mysqli_num_rows($user_check) === 0) {
-    echo "<script>alert('Data tidak valid. Silakan ulangi proses lupa password.'); window.location.href = 'lupa_password.php';</script>";
+if ((time() - $reset_time) > 900) { // 15 menit
+    unset($_SESSION['reset_user_id']);
+    unset($_SESSION['reset_user_name']);
+    unset($_SESSION['reset_timestamp']);
+    echo "<script>alert('Sesi reset password telah kedaluwarsa. Silakan mulai ulang dari lupa password.'); window.location.href = 'lupa_password.php';</script>";
     exit();
 }
-
-$user_data = mysqli_fetch_assoc($user_check);
-$user_id = $user_data['id'];
-$user_display = ($label === 'email') ? htmlspecialchars($user_data['email']) : htmlspecialchars($user_data['no_hp']);
 
 if (isset($_POST['reset'])) {
-    $pass_baru = mysqli_real_escape_string($koneksi, $_POST['password']);
-
-    $update = mysqli_query($koneksi, "UPDATE users SET password='$pass_baru' WHERE id='$user_id'");
-
-    if ($update) {
-        echo "<script>
-                alert('Password berhasil diganti! Silakan login kembali.'); 
-                window.location.href = 'login.php'; 
-              </script>";
-        exit();
+    $password = trim($_POST['password']);
+    
+    if ($password === '') {
+        $message = "Password tidak boleh kosong.";
+    } elseif (strlen($password) < 6) {
+        $message = "Password minimal 6 karakter.";
     } else {
-        $message = "Gagal mereset password. Silakan coba lagi.";
+        $password_hash = password_hash($password, PASSWORD_DEFAULT);
+        
+        $stmt = mysqli_prepare($koneksi, "UPDATE users SET password = ? WHERE id = ? LIMIT 1");
+        
+        if ($stmt) {
+            mysqli_stmt_bind_param($stmt, "si", $password_hash, $user_id);
+            $update = mysqli_stmt_execute($stmt);
+            mysqli_stmt_close($stmt);
+            
+            if ($update) {
+                // Hapus session setelah berhasil
+                unset($_SESSION['reset_user_id']);
+                unset($_SESSION['reset_user_name']);
+                unset($_SESSION['reset_timestamp']);
+                
+                echo "<script>
+                        alert('Password berhasil diganti! Silakan login kembali.'); 
+                        window.location.href = 'login.php'; 
+                      </script>";
+                exit();
+            } else {
+                $message = "Gagal mereset password. Silakan coba lagi.";
+            }
+        } else {
+            $message = "Gagal mereset password. Silakan coba lagi.";
+        }
     }
 }
 ?>
@@ -117,19 +133,27 @@ if (isset($_POST['reset'])) {
             font-size: 13px;
             margin-bottom: 20px;
         }
+
+        .error {
+            color: #ef4444;
+            font-size: 13px;
+            margin-bottom: 10px;
+            background: rgba(254, 242, 242, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
     <div class="card">
         <h2 style="color: #334155;">Buat Password Baru</h2>
-        <p class="info">Untuk <b><?php echo $label === 'email' ? 'email' : 'nomor telepon'; ?></b>: <b><?php echo $user_display; ?></b></p>
+        <p class="info">Untuk akun: <strong><?php echo htmlspecialchars($user_name); ?></strong></p>
         <?php if ($message !== ""): ?>
-            <p class="info" style="color: #dc2626; margin-bottom: 16px;"><?php echo htmlspecialchars($message); ?></p>
+            <p class="error"><?php echo htmlspecialchars($message); ?></p>
         <?php endif; ?>
         
         <form method="POST">
-            <input type="hidden" name="identifier" value="<?php echo htmlspecialchars($identifier); ?>">
-            <input type="password" name="password" placeholder="Masukkan Password Baru" required minlength="5">
+            <input type="password" name="password" placeholder="Masukkan Password Baru (minimal 6 karakter)" required minlength="6">
             <button type="submit" name="reset">Simpan Password Baru</button>
         </form>
     </div>

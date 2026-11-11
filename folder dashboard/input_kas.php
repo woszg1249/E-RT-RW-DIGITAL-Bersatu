@@ -58,6 +58,7 @@ include '../includes/header.php';
                     </div>
                     <div style="padding: 28px;">
                         <form action="proses_kas.php" method="POST">
+                            <?php echo csrf_field(); ?>
                             <input type="hidden" name="action" value="preview_payment">
                             
                             <div style="margin-bottom: 18px;">

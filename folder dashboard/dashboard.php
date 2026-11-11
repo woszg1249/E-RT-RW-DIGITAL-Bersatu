@@ -1,21 +1,25 @@
 <?php
 include "../Koneksi.php";
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['nama'])) {
-    header("Location: ../folder login,logout dan register/login.php");
-    exit();
-}
+require_login();
 
 $nama_user = $_SESSION['nama'];
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE id = '" . (int)($_SESSION['id'] ?? $_SESSION['id_user'] ?? 0) . "' LIMIT 1");
-if (!$query_user || mysqli_num_rows($query_user) === 0) {
-    $query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '" . mysqli_real_escape_string($koneksi, $nama_user) . "' LIMIT 1");
+$user_id = (int)($_SESSION['id'] ?? $_SESSION['id_user'] ?? 0);
+
+$stmt = mysqli_prepare($koneksi, "SELECT * FROM users WHERE id = ? LIMIT 1");
+mysqli_stmt_bind_param($stmt, "i", $user_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+
+if (mysqli_num_rows($result) === 0) {
+    mysqli_stmt_close($stmt);
+    $stmt = mysqli_prepare($koneksi, "SELECT * FROM users WHERE nama = ? LIMIT 1");
+    mysqli_stmt_bind_param($stmt, "s", $nama_user);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
 }
-$data_user = mysqli_fetch_assoc($query_user);
+
+$data_user = mysqli_fetch_assoc($result);
+mysqli_stmt_close($stmt);
 
 $email_user = $data_user['email'] ?? ($_SESSION['email'] ?? '');
 $role_user = $data_user['role'] ?? ($_SESSION['role'] ?? 'WARGA');
@@ -27,17 +31,46 @@ $_SESSION['foto'] = $foto_db;
 
 if (!empty($foto_db) && file_exists("../img/" . $foto_db)) {
     $tampilan_foto = "../img/" . $foto_db;
+} elseif (file_exists("../img/profile.jpg")) {
+    $tampilan_foto = "../img/profile.jpg";
 } else {
     $tampilan_foto = "https://ui-avatars.com/api/?name=" . urlencode($nama_user) . "&background=0284C7&color=fff";
 }
 
 $total_warga = 0;
+$total_warga_rt06 = 0;
+$total_warga_rt07 = 0;
+$total_kk_count = 0;
+$total_kk_rt06 = 0;
+$total_kk_rt07 = 0;
+
 if ($koneksi) {
-    $q_warga = mysqli_query($koneksi, "SELECT COUNT(*) as total FROM users");
-    if ($q_warga) {
-        $data_warga = mysqli_fetch_assoc($q_warga);
-        $total_warga = $data_warga['total'] ?? 0;
+    // Total warga riil di lingkungan RT/RW (role Warga)
+    $stmt = mysqli_prepare($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga'");
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    if ($result) {
+        $data_warga = mysqli_fetch_assoc($result);
+        $total_warga = (int)($data_warga['total'] ?? 0);
     }
+    mysqli_stmt_close($stmt);
+
+    // Warga per RT
+    $r06 = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(*) as c FROM users WHERE role = 'Warga' AND rt = '06'"));
+    $total_warga_rt06 = (int)($r06['c'] ?? 0);
+
+    $r07 = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(*) as c FROM users WHERE role = 'Warga' AND rt = '07'"));
+    $total_warga_rt07 = (int)($r07['c'] ?? 0);
+
+    // Total KK riil
+    $rkk = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(DISTINCT no_kk) as c FROM users WHERE role = 'Warga' AND no_kk IS NOT NULL AND no_kk != ''"));
+    $total_kk_count = (int)($rkk['c'] ?? 0);
+
+    $rkk06 = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(DISTINCT no_kk) as c FROM users WHERE role = 'Warga' AND rt = '06' AND no_kk IS NOT NULL AND no_kk != ''"));
+    $total_kk_rt06 = (int)($rkk06['c'] ?? 0);
+
+    $rkk07 = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(DISTINCT no_kk) as c FROM users WHERE role = 'Warga' AND rt = '07' AND no_kk IS NOT NULL AND no_kk != ''"));
+    $total_kk_rt07 = (int)($rkk07['c'] ?? 0);
 }
 
 $saldo_akhir = 0;
@@ -45,13 +78,19 @@ $pemasukan_persen = 0;
 $pengeluaran_persen = 0;
 
 if ($koneksi) {
-    $q_masuk = mysqli_query($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah > 0");
-    $d_masuk = mysqli_fetch_assoc($q_masuk);
+    $stmt = mysqli_prepare($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah > 0");
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $d_masuk = mysqli_fetch_assoc($result);
     $total_masuk = $d_masuk['total'] ?? 0;
+    mysqli_stmt_close($stmt);
 
-    $q_keluar = mysqli_query($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah < 0");
-    $d_keluar = mysqli_fetch_assoc($q_keluar);
+    $stmt = mysqli_prepare($koneksi, "SELECT SUM(jumlah) AS total FROM keuangan WHERE jumlah < 0");
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $d_keluar = mysqli_fetch_assoc($result);
     $total_keluar = abs($d_keluar['total'] ?? 0);
+    mysqli_stmt_close($stmt);
 
     $saldo_akhir = $total_masuk - $total_keluar;
 
@@ -106,16 +145,29 @@ include '../includes/header.php';
 
             <?php include 'notifikasi_iuran.php'; ?>
 
-            <section class="stat-grid">
+            <section class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
                 <article class="stat-card">
                     <span class="stat-card__label">Saldo RT RW Digital</span>
                     <h2 class="stat-card__value">Rp <?php echo number_format($saldo_akhir, 0, ',', '.'); ?></h2>
                     <div class="stat-card__muted">Total kas saat ini</div>
                 </article>
                 <article class="stat-card">
-                    <span class="stat-card__label">Total Warga</span>
+                    <span class="stat-card__label">Total Warga Terdaftar</span>
                     <h2 class="stat-card__value"><?php echo number_format($total_warga, 0, ',', '.'); ?> Orang</h2>
-                    <div class="stat-card__muted">Terdaftar di sistem</div>
+                    <div class="stat-card__muted" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+                        <span style="color:#0284c7; font-weight:700;"><i class="fa-solid fa-house-chimney"></i> RT 06: <?php echo $total_warga_rt06; ?> Jiwa</span>
+                        <span style="color:#cbd5e1;">&bull;</span>
+                        <span style="color:#059669; font-weight:700;"><i class="fa-solid fa-house-chimney"></i> RT 07: <?php echo $total_warga_rt07; ?> Jiwa</span>
+                    </div>
+                </article>
+                <article class="stat-card">
+                    <span class="stat-card__label">Total Kartu Keluarga (KK)</span>
+                    <h2 class="stat-card__value"><?php echo number_format($total_kk_count, 0, ',', '.'); ?> KK</h2>
+                    <div class="stat-card__muted" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
+                        <span style="color:#0284c7; font-weight:700;">RT 06: <?php echo $total_kk_rt06; ?> KK</span>
+                        <span style="color:#cbd5e1;">&bull;</span>
+                        <span style="color:#059669; font-weight:700;">RT 07: <?php echo $total_kk_rt07; ?> KK</span>
+                    </div>
                 </article>
             </section>
 

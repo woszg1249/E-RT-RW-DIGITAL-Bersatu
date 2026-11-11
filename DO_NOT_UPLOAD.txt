@@ -1,0 +1,88 @@
+================================================================================
+DAFTAR FILE/FOLDER YANG TIDAK BOLEH DI-UPLOAD KE HOSTING
+================================================================================
+
+❌ JANGAN UPLOAD:
+
+1. Folder Git
+   - .git/
+   - .gitignore
+
+2. File Development
+   - create_dummy_accounts.php
+   - DEPLOYMENT_GUIDE.txt
+   - README.md
+   - DO_NOT_UPLOAD.txt (file ini)
+
+3. Database Files
+   - database/*.sql
+   - *.sql
+   - *.sqlite
+   - *.db
+
+4. IDE/Editor Files
+   - .vscode/
+   - .idea/
+   - *.swp, *.swo
+
+5. OS Files
+   - .DS_Store (Mac)
+   - Thumbs.db (Windows)
+   - desktop.ini
+
+6. Log Files
+   - *.log
+   - error_log
+   - debug.log
+
+7. Backup Files
+   - *.bak
+   - *.backup
+
+8. Environment Files (jika ada)
+   - .env
+   - .env.local
+   - config.local.php
+
+================================================================================
+
+✅ YANG HARUS DI-UPLOAD:
+
+- Koneksi.php (EDIT DULU konfigurasi database!)
+- index.php
+- profil.php
+- proses_update_profil.php
+- manifest.json
+- sw.js
+
+- folder dashboard/ (semua file .php)
+- folder login,logout dan register/ (semua file .php)
+- includes/ (header.php, sidebar.php, footer.php)
+- img/ (folder upload, pastikan permission 755)
+- js/ (semua file JavaScript)
+- assets/ (CSS dan assets lainnya)
+
+================================================================================
+
+⚠️ PENTING SEBELUM UPLOAD:
+
+1. Edit Koneksi.php:
+   - Ganti $host, $user, $pass, $db sesuai hosting
+
+2. Buat .htaccess di folder img/:
+   <FilesMatch "\.(php|php3|php4|php5|phtml|phps)$">
+       Require all denied
+   </FilesMatch>
+   php_flag engine off
+   Options -Indexes
+
+3. Set permission:
+   - Folder: 755
+   - File .php: 644
+   - Folder img/: 755 (writable untuk upload)
+
+4. Aktifkan SSL/HTTPS di hosting
+
+5. Ubah password admin setelah login pertama
+
+================================================================================

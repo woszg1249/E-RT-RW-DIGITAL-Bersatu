@@ -23,29 +23,57 @@ $role_user = $_SESSION['role'] ?? 'ADMIN';
 $search = trim($_GET['q'] ?? '');
 $filter_role = trim($_GET['role'] ?? '');
 $filter_status_keluarga = trim($_GET['status_keluarga'] ?? '');
+$filter_rt = trim($_GET['rt'] ?? '');
 
+// Bangun WHERE clause dan parameter untuk prepared statement
 $where_clauses = ["1=1"];
+$params = [];
+$types = '';
+
 if (!empty($search)) {
-    $search_safe = mysqli_real_escape_string($koneksi, $search);
-    $where_clauses[] = "(users.nama LIKE '%$search_safe%' OR users.nik LIKE '%$search_safe%' OR users.no_kk LIKE '%$search_safe%' OR users.alamat LIKE '%$search_safe%' OR users.no_hp LIKE '%$search_safe%')";
+    $search_like = '%' . $search . '%';
+    $where_clauses[] = "(users.nama LIKE ? OR users.nik LIKE ? OR users.no_kk LIKE ? OR users.alamat LIKE ? OR users.no_hp LIKE ?)";
+    $params = array_merge($params, [$search_like, $search_like, $search_like, $search_like, $search_like]);
+    $types .= 'sssss';
 }
 if (!empty($filter_role)) {
-    $role_safe = mysqli_real_escape_string($koneksi, $filter_role);
-    $where_clauses[] = "LOWER(users.role) = LOWER('$role_safe')";
+    $where_clauses[] = "LOWER(users.role) = LOWER(?)";
+    $params[] = $filter_role;
+    $types .= 's';
 }
 if (!empty($filter_status_keluarga)) {
-    $sk_safe = mysqli_real_escape_string($koneksi, $filter_status_keluarga);
-    $where_clauses[] = "users.status_keluarga = '$sk_safe'";
+    $where_clauses[] = "users.status_keluarga = ?";
+    $params[] = $filter_status_keluarga;
+    $types .= 's';
+}
+if (!empty($filter_rt)) {
+    $where_clauses[] = "users.rt = ?";
+    $params[] = $filter_rt;
+    $types .= 's';
 }
 $where_sql = implode(' AND ', $where_clauses);
 
 // Hitung total warga yang cocok filter
-$res_count = mysqli_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE $where_sql");
-$row_count = mysqli_fetch_assoc($res_count);
+$count_sql = "SELECT COUNT(*) as total FROM users WHERE $where_sql";
+$stmt_count = mysqli_prepare($koneksi, $count_sql);
+if ($stmt_count && !empty($params)) {
+    mysqli_stmt_bind_param($stmt_count, $types, ...$params);
+    mysqli_stmt_execute($stmt_count);
+    $res_count = mysqli_stmt_get_result($stmt_count);
+    $row_count = mysqli_fetch_assoc($res_count);
+    mysqli_stmt_close($stmt_count);
+} else if ($stmt_count) {
+    mysqli_stmt_execute($stmt_count);
+    $res_count = mysqli_stmt_get_result($stmt_count);
+    $row_count = mysqli_fetch_assoc($res_count);
+    mysqli_stmt_close($stmt_count);
+} else {
+    $row_count = ['total' => 0];
+}
 $total_filtered = (int)($row_count['total'] ?? 0);
 
 // Hitung total seluruh akun di database
-$res_all = mysqli_query($koneksi, "SELECT COUNT(*) as total FROM users");
+$res_all = db_query($koneksi, "SELECT COUNT(*) as total FROM users");
 $row_all = mysqli_fetch_assoc($res_all);
 $total_all_users = (int)($row_all['total'] ?? 0);
 
@@ -62,8 +90,20 @@ $query_sql = "SELECT users.*, (SELECT SUM(jumlah) FROM keuangan WHERE keuangan.n
               FROM users 
               WHERE $where_sql 
               ORDER BY users.id ASC 
-              LIMIT $limit OFFSET $offset";
-$query = mysqli_query($koneksi, $query_sql);
+              LIMIT ? OFFSET ?";
+$stmt = mysqli_prepare($koneksi, $query_sql);
+if ($stmt) {
+    $params_with_limit = array_merge($params, [$limit, $offset]);
+    $types_with_limit = $types . 'ii';
+    if (!empty($params_with_limit)) {
+        mysqli_stmt_bind_param($stmt, $types_with_limit, ...$params_with_limit);
+    }
+    mysqli_stmt_execute($stmt);
+    $query = mysqli_stmt_get_result($stmt);
+    mysqli_stmt_close($stmt);
+} else {
+    $query = false;
+}
 
 $title = 'Kelola Data Warga - RT RW Digital Bersatu';
 include '../includes/header.php';
@@ -105,16 +145,23 @@ include '../includes/header.php';
                             <input type="text" name="q" value="<?php echo htmlspecialchars($search); ?>" placeholder="Cari Nama, NIK, No. KK, Alamat, atau HP..." style="width: 100%; padding: 10px 14px 10px 36px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff;">
                             <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted);"></i>
                         </div>
-                        <select name="role" style="padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; min-width: 130px;">
+                        <select name="rt" onchange="this.form.submit()" style="padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; min-width: 140px; font-weight:700; cursor:pointer;">
+                            <option value="">Semua Wilayah RT</option>
+                            <option value="06" <?php echo ($filter_rt === '06') ? 'selected' : ''; ?>>Wilayah RT 06</option>
+                            <option value="07" <?php echo ($filter_rt === '07') ? 'selected' : ''; ?>>Wilayah RT 07</option>
+                        </select>
+                        <select name="role" onchange="this.form.submit()" style="padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; min-width: 130px; cursor:pointer;">
                             <option value="">Semua Peran</option>
                             <option value="Warga" <?php echo (strcasecmp($filter_role, 'Warga') === 0) ? 'selected' : ''; ?>>Warga</option>
                             <option value="Admin" <?php echo (strcasecmp($filter_role, 'Admin') === 0) ? 'selected' : ''; ?>>Admin</option>
                         </select>
-                        <select name="status_keluarga" style="padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; min-width: 160px;">
+                        <select name="status_keluarga" onchange="this.form.submit()" style="padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; min-width: 160px; cursor:pointer;">
                             <option value="">Semua Status Keluarga</option>
                             <option value="Kepala Keluarga" <?php echo ($filter_status_keluarga === 'Kepala Keluarga') ? 'selected' : ''; ?>>Kepala Keluarga</option>
+                            <option value="Suami" <?php echo ($filter_status_keluarga === 'Suami') ? 'selected' : ''; ?>>Suami</option>
                             <option value="Istri" <?php echo ($filter_status_keluarga === 'Istri') ? 'selected' : ''; ?>>Istri</option>
                             <option value="Anak" <?php echo ($filter_status_keluarga === 'Anak') ? 'selected' : ''; ?>>Anak</option>
+                            <option value="Famili Lain" <?php echo ($filter_status_keluarga === 'Famili Lain') ? 'selected' : ''; ?>>Famili Lain</option>
                         </select>
                         <button type="submit" class="primary-btn">
                             <i class="fa-solid fa-filter"></i> Filter
@@ -142,6 +189,7 @@ include '../includes/header.php';
                             <tr>
                                 <th style="text-align: center; width: 50px;">No</th>
                                 <th>Nama Warga</th>
+                                <th style="text-align: center; width: 75px;">Wilayah</th>
                                 <th>No. KK</th>
                                 <th>NIK</th>
                                 <th>Status Keluarga</th>
@@ -149,12 +197,13 @@ include '../includes/header.php';
                                 <th>No. HP</th>
                                 <th style="text-align: center;">Status Akun</th>
                                 <th style="text-align: right;">Total Kas</th>
+                                <th style="text-align: center; width: 90px;">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php 
                             if (mysqli_num_rows($query) === 0) {
-                                echo '<tr><td colspan="9" style="text-align:center; padding:32px; color:var(--text-soft);"><i class="fa-solid fa-inbox" style="font-size:2rem; display:block; margin-bottom:8px;"></i>Tidak ada data warga ditemukan.</td></tr>';
+                                echo '<tr><td colspan="10" style="text-align:center; padding:32px; color:var(--text-soft);"><i class="fa-solid fa-inbox" style="font-size:2rem; display:block; margin-bottom:8px;"></i>Tidak ada data warga ditemukan.</td></tr>';
                             } else {
                                 $no = $offset + 1; 
                                 while($d = mysqli_fetch_array($query)) { 
@@ -162,14 +211,25 @@ include '../includes/header.php';
                             <tr>
                                 <td style="text-align: center; color: var(--text-soft); font-weight: 600;"><?php echo $no++; ?></td>
                                 <td style="font-weight: 700; color: var(--text);"><?php echo htmlspecialchars($d['nama']); ?></td>
+                                <td style="text-align: center;">
+                                    <span style="background:#e0f2fe; color:#0369a1; padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.75rem;">
+                                        RT <?php echo htmlspecialchars($d['rt'] ?? '06'); ?>
+                                    </span>
+                                </td>
                                 <td style="font-family: monospace; font-size: 0.88rem; color: var(--text-soft);"><?php echo htmlspecialchars($d['no_kk'] ?? '-'); ?></td>
                                 <td style="font-family: monospace; font-size: 0.88rem; color: var(--text-soft);"><?php echo htmlspecialchars($d['nik'] ?? '-'); ?></td>
                                 <td>
                                     <?php 
                                     $sk = $d['status_keluarga'] ?? 'Kepala Keluarga';
-                                    $sk_bg = '#e0f2fe';
-                                    $sk_color = '#0369a1';
-                                    if ($sk === 'Istri') {
+                                    $sk_bg = '#fef3c7';
+                                    $sk_color = '#b45309';
+                                    if ($sk === 'Kepala Keluarga') {
+                                        $sk_bg = '#e0f2fe';
+                                        $sk_color = '#0369a1';
+                                    } elseif ($sk === 'Suami') {
+                                        $sk_bg = '#e0e7ff';
+                                        $sk_color = '#4338ca';
+                                    } elseif ($sk === 'Istri') {
                                         $sk_bg = '#fce7f3';
                                         $sk_color = '#be185d';
                                     } elseif ($sk === 'Anak') {
@@ -193,6 +253,11 @@ include '../includes/header.php';
                                 <td style="text-align: right; font-weight: 800; color: #16a34a;">
                                     Rp <?php echo number_format($d['total'] ?? 0, 0, ',', '.'); ?>
                                 </td>
+                                <td style="text-align: center;">
+                                    <a href="kelola_kk.php?q=<?php echo urlencode($d['no_kk'] ?? $d['nama']); ?>" class="ghost-btn" style="padding: 4px 8px; font-size: 0.75rem; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Kelola & Perbaiki KK">
+                                        <i class="fa-solid fa-pen-to-square"></i> KK
+                                    </a>
+                                </td>
                             </tr>
                             <?php 
                                 } 
@@ -209,6 +274,7 @@ include '../includes/header.php';
                     if (!empty($search)) $queryParams['q'] = $search;
                     if (!empty($filter_role)) $queryParams['role'] = $filter_role;
                     if (!empty($filter_status_keluarga)) $queryParams['status_keluarga'] = $filter_status_keluarga;
+if (!empty($filter_rt)) $queryParams['rt'] = $filter_rt;
                     
                     function buildWargaPageUrl($p, $params) {
                         $params['page'] = $p;

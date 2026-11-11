@@ -2,20 +2,28 @@
 
 if ($koneksi && isset($nama_user)) {
     
-    $query_notif = mysqli_query($koneksi, "SELECT role, info_iuran, id FROM users WHERE nama = '$nama_user'");
-    $data_notif = mysqli_fetch_assoc($query_notif);
+    $stmt = mysqli_prepare($koneksi, "SELECT role, info_iuran, id FROM users WHERE nama = ?");
+    mysqli_stmt_bind_param($stmt, "s", $nama_user);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $data_notif = mysqli_fetch_assoc($result);
+    mysqli_stmt_close($stmt);
+    
     $current_user_id = $data_notif['id'] ?? $id_user ?? 0;
 
     // load dismissed notifications for this user
     $dismissed_ids = [];
     if ($current_user_id) {
-        $q_dis = mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS notif_dismissed (id INT AUTO_INCREMENT PRIMARY KEY, id_tagihan INT NOT NULL, id_user INT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
-        $q_load = mysqli_query($koneksi, "SELECT id_tagihan FROM notif_dismissed WHERE id_user = '$current_user_id'");
-        if ($q_load) {
-            while ($r = mysqli_fetch_assoc($q_load)) {
-                $dismissed_ids[] = (int)$r['id_tagihan'];
-            }
+        mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS notif_dismissed (id INT AUTO_INCREMENT PRIMARY KEY, id_tagihan INT NOT NULL, id_user INT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+        
+        $stmt = mysqli_prepare($koneksi, "SELECT id_tagihan FROM notif_dismissed WHERE id_user = ?");
+        mysqli_stmt_bind_param($stmt, "i", $current_user_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        while ($r = mysqli_fetch_assoc($result)) {
+            $dismissed_ids[] = (int)$r['id_tagihan'];
         }
+        mysqli_stmt_close($stmt);
     }
 
     if ($data_notif && $data_notif['role'] === 'Warga') {
@@ -43,10 +51,13 @@ if ($koneksi && isset($nama_user)) {
 
         
         if (isset($id_user)) {
-            $query_tagihan = mysqli_query($koneksi, "SELECT * FROM tagihan WHERE id_user = '$id_user' ORDER BY id_tagihan DESC");
+            $stmt = mysqli_prepare($koneksi, "SELECT * FROM tagihan WHERE id_user = ? ORDER BY id_tagihan DESC");
+            mysqli_stmt_bind_param($stmt, "i", $id_user);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
             
-            if (mysqli_num_rows($query_tagihan) > 0) {
-                while ($row = mysqli_fetch_assoc($query_tagihan)) {
+            if (mysqli_num_rows($result) > 0) {
+                while ($row = mysqli_fetch_assoc($result)) {
                     // skip if dismissed for this user
                     if (in_array((int)$row['id_tagihan'], $dismissed_ids)) continue;
                     $bulan = htmlspecialchars($row['bulan_tahun']);
@@ -96,6 +107,7 @@ if ($koneksi && isset($nama_user)) {
                         <?php
                     }
                 }
+                mysqli_stmt_close($stmt);
             } else {
                 
                 echo "<p style='color: #6c757d; font-size: 14px;'>Belum ada riwayat tagihan iuran untuk Anda saat ini.</p>";

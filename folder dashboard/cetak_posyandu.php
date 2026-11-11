@@ -1,36 +1,21 @@
 <?php
 
 include "../Koneksi.php";
+require_admin();
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['nama'])) {
-    header("Location: ../folder login,logout dan register/login.php");
-    exit();
-}
-
-$role = isset($_SESSION['role']) ? strtoupper($_SESSION['role']) : 'WARGA';
-
-if ($role !== 'ADMIN') {
-    header("Location: dashboard.php");
-    exit();
-}
-
-$id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
 if ($id <= 0) {
     echo "ID tidak valid";
     exit();
 }
 
-$query = "SELECT p.*, u.nama as nama_warga, u.alamat, u.no_hp, u.nik, u.no_kk FROM posyandu p
-         LEFT JOIN users u ON p.id_warga = u.id
-         WHERE p.id = '$id'";
-
-$result = mysqli_query($koneksi, $query);
+$stmt = mysqli_prepare($koneksi, "SELECT p.*, u.nama as nama_warga, u.alamat, u.no_hp, u.nik, u.no_kk FROM posyandu p LEFT JOIN users u ON p.id_warga = u.id WHERE p.id = ?");
+mysqli_stmt_bind_param($stmt, "i", $id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
 $data = mysqli_fetch_assoc($result);
+mysqli_stmt_close($stmt);
 
 if (!$data) {
     echo "Data tidak ditemukan";

@@ -14,12 +14,14 @@ $nama_user = $_SESSION['nama'];
 $role_user = strtoupper($_SESSION['role'] ?? 'WARGA');
 $id_user = intval($_SESSION['id'] ?? 0);
 
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '" . mysqli_real_escape_string($koneksi, $nama_user) . "'");
-$data_user = mysqli_fetch_assoc($query_user);
+$res_user = db_query($koneksi, "SELECT * FROM users WHERE nama = ?", "s", $nama_user);
+$data_user = ($res_user && mysqli_num_rows($res_user) > 0) ? mysqli_fetch_assoc($res_user) : [];
 $foto_db = $data_user['foto'] ?? '';
 
 if (!empty($foto_db) && file_exists("../img/" . $foto_db)) {
     $tampilan_foto = "../img/" . $foto_db;
+} elseif (file_exists("../img/profile.jpg")) {
+    $tampilan_foto = "../img/profile.jpg";
 } else {
     $tampilan_foto = "https://ui-avatars.com/api/?name=" . urlencode($nama_user) . "&background=4e73df&color=fff";
 }
@@ -59,30 +61,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add_umkm' && $role_user === 'ADMIN') {
-        $nama_usaha = mysqli_real_escape_string($koneksi, trim($_POST['nama_usaha'] ?? ''));
-        $kategori = mysqli_real_escape_string($koneksi, trim($_POST['kategori'] ?? 'Umum'));
-        $deskripsi = mysqli_real_escape_string($koneksi, trim($_POST['deskripsi'] ?? ''));
-        $alamat = mysqli_real_escape_string($koneksi, trim($_POST['alamat'] ?? '-'));
-        $jam_operasional = mysqli_real_escape_string($koneksi, trim($_POST['jam_operasional'] ?? '-'));
-        $whatsapp = mysqli_real_escape_string($koneksi, trim($_POST['whatsapp'] ?? '-'));
-        $produk_layanan = mysqli_real_escape_string($koneksi, trim($_POST['produk_layanan'] ?? ''));
-        $estimasi_jarak = mysqli_real_escape_string($koneksi, trim($_POST['estimasi_jarak'] ?? '-'));
-        $google_maps_link = mysqli_real_escape_string($koneksi, trim($_POST['google_maps_link'] ?? '-'));
-        $status = mysqli_real_escape_string($koneksi, trim($_POST['status'] ?? 'Aktif'));
+        $nama_usaha = trim($_POST['nama_usaha'] ?? '');
+        $kategori = trim($_POST['kategori'] ?? 'Umum');
+        $deskripsi = trim($_POST['deskripsi'] ?? '');
+        $alamat = trim($_POST['alamat'] ?? '-');
+        $jam_operasional = trim($_POST['jam_operasional'] ?? '-');
+        $whatsapp = trim($_POST['whatsapp'] ?? '-');
+        $produk_layanan = trim($_POST['produk_layanan'] ?? '');
+        $estimasi_jarak = trim($_POST['estimasi_jarak'] ?? '-');
+        $google_maps_link = trim($_POST['google_maps_link'] ?? '-');
+        $status = trim($_POST['status'] ?? 'Aktif');
         $foto_file = null;
 
         if ($nama_usaha === '') {
             $error_message = 'Nama usaha tidak boleh kosong.';
         } else {
             if (!empty($_FILES['foto_usaha']['name']) && is_uploaded_file($_FILES['foto_usaha']['tmp_name'])) {
-                $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
-                $ext = strtolower(pathinfo($_FILES['foto_usaha']['name'], PATHINFO_EXTENSION));
-                if (!in_array($ext, $allowed_ext)) {
-                    $error_message = 'Format foto usaha tidak didukung. Gunakan JPG, JPEG, PNG, atau GIF.';
+                $upload_result = secure_image_upload($_FILES['foto_usaha'], 'umkm');
+                
+                if (!$upload_result['success']) {
+                    $error_message = $upload_result['message'];
                 } else {
-                    $upload_name = 'umkm_' . time() . '_' . rand(1000,9999) . '.' . $ext;
+                    $upload_name = $upload_result['filename'];
                     if (!move_uploaded_file($_FILES['foto_usaha']['tmp_name'], '../img/' . $upload_name)) {
-                        $error_message = 'Gagal mengunggah foto usaha.';
+                        $error_message = 'Gagal menyimpan foto usaha.';
                     } else {
                         $foto_file = $upload_name;
                     }
@@ -91,42 +93,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($error_message === '') {
-            $insert = "INSERT INTO umkm (nama_usaha, kategori, deskripsi, alamat, jam_operasional, whatsapp, foto, produk_layanan, estimasi_jarak, google_maps_link, status) VALUES ('" . $nama_usaha . "', '" . $kategori . "', '" . $deskripsi . "', '" . $alamat . "', '" . $jam_operasional . "', '" . $whatsapp . "', '" . ($foto_file ? $foto_file : '') . "', '" . $produk_layanan . "', '" . $estimasi_jarak . "', '" . $google_maps_link . "', '" . $status . "')";
-            if (mysqli_query($koneksi, $insert)) {
+            $foto_val = $foto_file ?: '';
+            $stmt = mysqli_prepare($koneksi, "INSERT INTO umkm (nama_usaha, kategori, deskripsi, alamat, jam_operasional, whatsapp, foto, produk_layanan, estimasi_jarak, google_maps_link, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            mysqli_stmt_bind_param($stmt, "sssssssssss", $nama_usaha, $kategori, $deskripsi, $alamat, $jam_operasional, $whatsapp, $foto_val, $produk_layanan, $estimasi_jarak, $google_maps_link, $status);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                mysqli_stmt_close($stmt);
                 $_SESSION['umkm_flash'] = 'UMKM berhasil ditambahkan.';
                 header('Location: umkm.php');
                 exit();
             }
-            $error_message = 'Gagal menyimpan UMKM: ' . mysqli_error($koneksi);
+            mysqli_stmt_close($stmt);
+            $error_message = 'Gagal menyimpan UMKM. Silakan coba lagi.';
         }
     }
 
     if ($action === 'edit_umkm' && $role_user === 'ADMIN') {
-        $id_umkm = intval($_POST['umkm_id'] ?? 0);
-        $nama_usaha = mysqli_real_escape_string($koneksi, trim($_POST['nama_usaha'] ?? ''));
-        $kategori = mysqli_real_escape_string($koneksi, trim($_POST['kategori'] ?? 'Umum'));
-        $deskripsi = mysqli_real_escape_string($koneksi, trim($_POST['deskripsi'] ?? ''));
-        $alamat = mysqli_real_escape_string($koneksi, trim($_POST['alamat'] ?? '-'));
-        $jam_operasional = mysqli_real_escape_string($koneksi, trim($_POST['jam_operasional'] ?? '-'));
-        $whatsapp = mysqli_real_escape_string($koneksi, trim($_POST['whatsapp'] ?? '-'));
-        $produk_layanan = mysqli_real_escape_string($koneksi, trim($_POST['produk_layanan'] ?? ''));
-        $estimasi_jarak = mysqli_real_escape_string($koneksi, trim($_POST['estimasi_jarak'] ?? '-'));
-        $google_maps_link = mysqli_real_escape_string($koneksi, trim($_POST['google_maps_link'] ?? '-'));
-        $status = mysqli_real_escape_string($koneksi, trim($_POST['status'] ?? 'Aktif'));
+        $id_umkm = (int)($_POST['umkm_id'] ?? 0);
+        $nama_usaha = trim($_POST['nama_usaha'] ?? '');
+        $kategori = trim($_POST['kategori'] ?? 'Umum');
+        $deskripsi = trim($_POST['deskripsi'] ?? '');
+        $alamat = trim($_POST['alamat'] ?? '-');
+        $jam_operasional = trim($_POST['jam_operasional'] ?? '-');
+        $whatsapp = trim($_POST['whatsapp'] ?? '-');
+        $produk_layanan = trim($_POST['produk_layanan'] ?? '');
+        $estimasi_jarak = trim($_POST['estimasi_jarak'] ?? '-');
+        $google_maps_link = trim($_POST['google_maps_link'] ?? '-');
+        $status = trim($_POST['status'] ?? 'Aktif');
         $foto_update = '';
 
         if ($id_umkm <= 0 || $nama_usaha === '') {
             $error_message = 'Data UMKM tidak valid.';
         } else {
             if (!empty($_FILES['foto_usaha']['name']) && is_uploaded_file($_FILES['foto_usaha']['tmp_name'])) {
-                $allowed_ext = ['jpg', 'jpeg', 'png', 'gif'];
-                $ext = strtolower(pathinfo($_FILES['foto_usaha']['name'], PATHINFO_EXTENSION));
-                if (!in_array($ext, $allowed_ext)) {
-                    $error_message = 'Format foto usaha tidak didukung. Gunakan JPG, JPEG, PNG, atau GIF.';
+                $upload_result = secure_image_upload($_FILES['foto_usaha'], 'umkm');
+                
+                if (!$upload_result['success']) {
+                    $error_message = $upload_result['message'];
                 } else {
-                    $upload_name = 'umkm_' . time() . '_' . rand(1000,9999) . '.' . $ext;
+                    $upload_name = $upload_result['filename'];
                     if (!move_uploaded_file($_FILES['foto_usaha']['tmp_name'], '../img/' . $upload_name)) {
-                        $error_message = 'Gagal mengunggah foto usaha.';
+                        $error_message = 'Gagal menyimpan foto usaha.';
                     } else {
                         $foto_update = $upload_name;
                     }
@@ -135,24 +142,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($error_message === '') {
-            $update = "UPDATE umkm SET nama_usaha='" . $nama_usaha . "', kategori='" . $kategori . "', deskripsi='" . $deskripsi . "', alamat='" . $alamat . "', jam_operasional='" . $jam_operasional . "', whatsapp='" . $whatsapp . "', produk_layanan='" . $produk_layanan . "', estimasi_jarak='" . $estimasi_jarak . "', google_maps_link='" . $google_maps_link . "', status='" . $status . "'";
             if ($foto_update !== '') {
-                $update .= ", foto='" . $foto_update . "'";
+                $stmt = mysqli_prepare($koneksi, "UPDATE umkm SET nama_usaha=?, kategori=?, deskripsi=?, alamat=?, jam_operasional=?, whatsapp=?, produk_layanan=?, estimasi_jarak=?, google_maps_link=?, status=?, foto=? WHERE id=?");
+                mysqli_stmt_bind_param($stmt, "sssssssssssi", $nama_usaha, $kategori, $deskripsi, $alamat, $jam_operasional, $whatsapp, $produk_layanan, $estimasi_jarak, $google_maps_link, $status, $foto_update, $id_umkm);
+            } else {
+                $stmt = mysqli_prepare($koneksi, "UPDATE umkm SET nama_usaha=?, kategori=?, deskripsi=?, alamat=?, jam_operasional=?, whatsapp=?, produk_layanan=?, estimasi_jarak=?, google_maps_link=?, status=? WHERE id=?");
+                mysqli_stmt_bind_param($stmt, "ssssssssssi", $nama_usaha, $kategori, $deskripsi, $alamat, $jam_operasional, $whatsapp, $produk_layanan, $estimasi_jarak, $google_maps_link, $status, $id_umkm);
             }
-            $update .= " WHERE id='" . $id_umkm . "'";
-            if (mysqli_query($koneksi, $update)) {
+            
+            if (mysqli_stmt_execute($stmt)) {
+                mysqli_stmt_close($stmt);
                 $_SESSION['umkm_flash'] = 'UMKM berhasil diperbarui.';
                 header('Location: umkm.php');
                 exit();
             }
-            $error_message = 'Gagal memperbarui UMKM: ' . mysqli_error($koneksi);
+            mysqli_stmt_close($stmt);
+            $error_message = 'Gagal memperbarui UMKM. Silakan coba lagi.';
         }
     }
 
     if ($action === 'delete_umkm' && $role_user === 'ADMIN') {
-        $id_umkm = intval($_POST['umkm_id'] ?? 0);
+        $id_umkm = (int)($_POST['umkm_id'] ?? 0);
         if ($id_umkm > 0) {
-            if (mysqli_query($koneksi, "DELETE FROM umkm WHERE id='" . $id_umkm . "'")) {
+            $stmt = mysqli_prepare($koneksi, "DELETE FROM umkm WHERE id=?");
+            mysqli_stmt_bind_param($stmt, "i", $id_umkm);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                mysqli_stmt_close($stmt);
                 $_SESSION['umkm_flash'] = 'UMKM berhasil dihapus.';
                 header('Location: umkm.php');
                 exit();
@@ -162,39 +178,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$search = mysqli_real_escape_string($koneksi, trim($_GET['search'] ?? ''));
-$filter_category = mysqli_real_escape_string($koneksi, trim($_GET['category'] ?? ''));
+$search = trim($_GET['search'] ?? '');
+$filter_category = trim($_GET['category'] ?? '');
 
 $where_clauses = ["status = 'Aktif'"];
+$params = [];
+$types = "";
+
 if ($search !== '') {
-    $where_clauses[] = "(nama_usaha LIKE '%" . $search . "%' OR kategori LIKE '%" . $search . "%' OR deskripsi LIKE '%" . $search . "%')";
+    $search_param = "%$search%";
+    $where_clauses[] = "(nama_usaha LIKE ? OR kategori LIKE ? OR deskripsi LIKE ?)";
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $types .= "sss";
 }
 if ($filter_category !== '') {
-    $where_clauses[] = "kategori = '" . $filter_category . "'";
+    $where_clauses[] = "kategori = ?";
+    $params[] = $filter_category;
+    $types .= "s";
 }
+
 $where_sql = '';
 if (count($where_clauses) > 0) {
     $where_sql = 'WHERE ' . implode(' AND ', $where_clauses);
 }
 
 $umkm_query = "SELECT * FROM umkm " . $where_sql . " ORDER BY nama_usaha ASC";
-$result_umkm = mysqli_query($koneksi, $umkm_query);
+
+$stmt = mysqli_prepare($koneksi, $umkm_query);
+if (!empty($params)) {
+    mysqli_stmt_bind_param($stmt, $types, ...$params);
+}
+mysqli_stmt_execute($stmt);
+$result_umkm = mysqli_stmt_get_result($stmt);
+
 $umkm_list = [];
 while ($row = mysqli_fetch_assoc($result_umkm)) {
     $umkm_list[] = $row;
 }
+mysqli_stmt_close($stmt);
 
 $all_umkm = [];
-$all_umkm_result = mysqli_query($koneksi, "SELECT * FROM umkm ORDER BY created_at DESC");
+$stmt_all = mysqli_prepare($koneksi, "SELECT * FROM umkm ORDER BY created_at DESC");
+mysqli_stmt_execute($stmt_all);
+$all_umkm_result = mysqli_stmt_get_result($stmt_all);
 while ($row = mysqli_fetch_assoc($all_umkm_result)) {
     $all_umkm[] = $row;
 }
+mysqli_stmt_close($stmt_all);
 
-$category_result = mysqli_query($koneksi, "SELECT DISTINCT kategori FROM umkm ORDER BY kategori ASC");
+$stmt_cat = mysqli_prepare($koneksi, "SELECT DISTINCT kategori FROM umkm ORDER BY kategori ASC");
+mysqli_stmt_execute($stmt_cat);
+$category_result = mysqli_stmt_get_result($stmt_cat);
 $categories = [];
 while ($row = mysqli_fetch_assoc($category_result)) {
     $categories[] = $row['kategori'];
 }
+mysqli_stmt_close($stmt_cat);
 
 $title = 'UMKM Lokal Warga - RT RW Digital Bersatu';
 include '../includes/header.php';

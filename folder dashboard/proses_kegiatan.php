@@ -1,25 +1,27 @@
 <?php
 include "../Koneksi.php";
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_login();
 
 header('Content-Type: application/json; charset=utf-8');
 
-if (!isset($_SESSION['nama'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-    exit();
-}
-
 $nama_user = $_SESSION['nama'];
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '" . mysqli_real_escape_string($koneksi, $nama_user) . "'");
-$data_user = mysqli_fetch_assoc($query_user);
-$id_user = $data_user['id'] ?? 0;
+$stmt_user = mysqli_prepare($koneksi, "SELECT id, role FROM users WHERE nama = ? LIMIT 1");
+mysqli_stmt_bind_param($stmt_user, "s", $nama_user);
+mysqli_stmt_execute($stmt_user);
+$result_user = mysqli_stmt_get_result($stmt_user);
+$data_user = mysqli_fetch_assoc($result_user);
+mysqli_stmt_close($stmt_user);
+
+$id_user = (int)($data_user['id'] ?? 0);
 $role = strtoupper($data_user['role'] ?? 'WARGA');
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
-// Create table if not exists
+$mutating_actions = ['add', 'edit', 'delete'];
+if (in_array($action, $mutating_actions) && !csrf_check()) {
+    resp(false, 'Token keamanan tidak valid');
+}
+
 $create = "CREATE TABLE IF NOT EXISTS kegiatan (
     id INT AUTO_INCREMENT PRIMARY KEY,
     judul VARCHAR(255) NOT NULL,
@@ -39,47 +41,70 @@ function resp($ok, $msg) {
 }
 
 if ($action === 'add') {
-    if ($role !== 'ADMIN') resp(false, 'Hanya admin yang dapat membuat kegiatan');
+    require_admin();
 
-    $judul = isset($_POST['judul']) ? mysqli_real_escape_string($koneksi, $_POST['judul']) : '';
-    $deskripsi = isset($_POST['deskripsi']) ? mysqli_real_escape_string($koneksi, $_POST['deskripsi']) : '';
+    $judul = isset($_POST['judul']) ? trim($_POST['judul']) : '';
+    $deskripsi = isset($_POST['deskripsi']) ? trim($_POST['deskripsi']) : '';
     $tanggal_mulai = isset($_POST['tanggal_mulai']) ? $_POST['tanggal_mulai'] : null;
     $tanggal_selesai = isset($_POST['tanggal_selesai']) ? $_POST['tanggal_selesai'] : null;
-    $waktu = isset($_POST['waktu']) ? mysqli_real_escape_string($koneksi, $_POST['waktu']) : '';
-    $lokasi = isset($_POST['lokasi']) ? mysqli_real_escape_string($koneksi, $_POST['lokasi']) : '';
+    $waktu = isset($_POST['waktu']) ? trim($_POST['waktu']) : '';
+    $lokasi = isset($_POST['lokasi']) ? trim($_POST['lokasi']) : '';
 
     if (empty($judul) || empty($tanggal_mulai)) resp(false, 'Data tidak lengkap');
 
-    $ins = "INSERT INTO kegiatan (judul, deskripsi, tanggal_mulai, tanggal_selesai, waktu, lokasi, dibuat_oleh) VALUES ('" . $judul . "', '" . $deskripsi . "', '" . $tanggal_mulai . "', " . ($tanggal_selesai ? "'" . $tanggal_selesai . "'" : "NULL") . ", '" . $waktu . "', '" . $lokasi . "', '" . intval($id_user) . "')";
-    if (mysqli_query($koneksi, $ins)) resp(true, 'Kegiatan berhasil dibuat');
-    resp(false, 'Gagal menyimpan: ' . mysqli_error($koneksi));
+    $stmt = mysqli_prepare($koneksi, "INSERT INTO kegiatan (judul, deskripsi, tanggal_mulai, tanggal_selesai, waktu, lokasi, dibuat_oleh) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssi", $judul, $deskripsi, $tanggal_mulai, $tanggal_selesai, $waktu, $lokasi, $id_user);
+        if (mysqli_stmt_execute($stmt)) {
+            mysqli_stmt_close($stmt);
+            resp(true, 'Kegiatan berhasil dibuat');
+        }
+        mysqli_stmt_close($stmt);
+    }
+    resp(false, 'Gagal menyimpan data');
 }
 
-if ($action === 'update') {
-    if ($role !== 'ADMIN') resp(false, 'Hanya admin yang dapat mengubah kegiatan');
-    $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+if ($action === 'edit' || $action === 'update') {
+    require_admin();
+    
+    $id = isset($_POST['id']) ? (int)$_POST['id'] : 0;
     if ($id <= 0) resp(false, 'ID tidak valid');
 
-    $judul = isset($_POST['judul']) ? mysqli_real_escape_string($koneksi, $_POST['judul']) : '';
-    $deskripsi = isset($_POST['deskripsi']) ? mysqli_real_escape_string($koneksi, $_POST['deskripsi']) : '';
+    $judul = isset($_POST['judul']) ? trim($_POST['judul']) : '';
+    $deskripsi = isset($_POST['deskripsi']) ? trim($_POST['deskripsi']) : '';
     $tanggal_mulai = isset($_POST['tanggal_mulai']) ? $_POST['tanggal_mulai'] : null;
     $tanggal_selesai = isset($_POST['tanggal_selesai']) ? $_POST['tanggal_selesai'] : null;
-    $waktu = isset($_POST['waktu']) ? mysqli_real_escape_string($koneksi, $_POST['waktu']) : '';
-    $lokasi = isset($_POST['lokasi']) ? mysqli_real_escape_string($koneksi, $_POST['lokasi']) : '';
+    $waktu = isset($_POST['waktu']) ? trim($_POST['waktu']) : '';
+    $lokasi = isset($_POST['lokasi']) ? trim($_POST['lokasi']) : '';
 
-    $upd = "UPDATE kegiatan SET judul='" . $judul . "', deskripsi='" . $deskripsi . "', tanggal_mulai=" . ($tanggal_mulai ? "'" . $tanggal_mulai . "'" : "NULL") . ", tanggal_selesai=" . ($tanggal_selesai ? "'" . $tanggal_selesai . "'" : "NULL") . ", waktu='" . $waktu . "', lokasi='" . $lokasi . "' WHERE id='" . $id . "'";
-    if (mysqli_query($koneksi, $upd)) resp(true, 'Kegiatan berhasil diperbarui');
-    resp(false, 'Gagal memperbarui: ' . mysqli_error($koneksi));
+    $stmt = mysqli_prepare($koneksi, "UPDATE kegiatan SET judul=?, deskripsi=?, tanggal_mulai=?, tanggal_selesai=?, waktu=?, lokasi=? WHERE id=?");
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "ssssssi", $judul, $deskripsi, $tanggal_mulai, $tanggal_selesai, $waktu, $lokasi, $id);
+        if (mysqli_stmt_execute($stmt)) {
+            mysqli_stmt_close($stmt);
+            resp(true, 'Kegiatan berhasil diperbarui');
+        }
+        mysqli_stmt_close($stmt);
+    }
+    resp(false, 'Gagal memperbarui data');
 }
 
 if ($action === 'delete') {
-    if ($role !== 'ADMIN') resp(false, 'Hanya admin yang dapat menghapus kegiatan');
-    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    require_admin();
+    
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($id <= 0) resp(false, 'ID tidak valid');
 
-    $del = "DELETE FROM kegiatan WHERE id='" . $id . "'";
-    if (mysqli_query($koneksi, $del)) resp(true, 'Kegiatan berhasil dihapus');
-    resp(false, 'Gagal menghapus: ' . mysqli_error($koneksi));
+    $stmt = mysqli_prepare($koneksi, "DELETE FROM kegiatan WHERE id=?");
+    if ($stmt) {
+        mysqli_stmt_bind_param($stmt, "i", $id);
+        if (mysqli_stmt_execute($stmt)) {
+            mysqli_stmt_close($stmt);
+            resp(true, 'Kegiatan berhasil dihapus');
+        }
+        mysqli_stmt_close($stmt);
+    }
+    resp(false, 'Gagal menghapus data');
 }
 
 resp(false, 'Action tidak dikenali');

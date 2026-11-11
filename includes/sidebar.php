@@ -11,8 +11,11 @@ $userName = $_SESSION['nama'] ?? 'Pengguna';
 $userPhoto = $_SESSION['foto'] ?? '';
 
 if (!isset($displayPhoto) || empty($displayPhoto)) {
-    if (!empty($userPhoto) && file_exists(($inDashboardFolder ? '../img/' : 'img/') . $userPhoto)) {
-        $displayPhoto = ($inDashboardFolder ? '../img/' : 'img/') . $userPhoto;
+    $imgPath = ($inDashboardFolder ? '../img/' : 'img/');
+    if (!empty($userPhoto) && file_exists($imgPath . $userPhoto)) {
+        $displayPhoto = $imgPath . $userPhoto;
+    } elseif (file_exists($imgPath . 'profile.jpg')) {
+        $displayPhoto = $imgPath . 'profile.jpg';
     } else {
         $displayPhoto = 'https://ui-avatars.com/api/?name=' . urlencode($userName) . '&background=0284C7&color=fff';
     }
@@ -67,6 +70,11 @@ if (!function_exists('appModuleUrl')) {
             <a href="<?php echo appModuleUrl('kelola_surat.php', $inDashboardFolder); ?>" class="app-menu-item <?php echo ($currentScript === 'kelola_surat.php') ? 'active' : ''; ?>">
                 <i class="fa-solid fa-file-circle-check"></i>
                 <span>Kelola Surat</span>
+            </a>
+        <?php } else { ?>
+            <a href="<?php echo appModuleUrl('kelola_kk.php', $inDashboardFolder); ?>" class="app-menu-item <?php echo ($currentScript === 'kelola_kk.php') ? 'active' : ''; ?>">
+                <i class="fa-solid fa-people-roof"></i>
+                <span>Data Keluarga</span>
             </a>
         <?php } ?>
 

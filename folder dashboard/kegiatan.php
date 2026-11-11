@@ -147,6 +147,7 @@ include '../includes/header.php';
         <button class="close-btn" onclick="closeForm()">&times;</button>
         <h3 id="modalTitle" style="margin:0 0 18px; color:var(--text);">Buat Kegiatan</h3>
         <form id="eventForm" onsubmit="submitEvent(event)">
+            <?php echo csrf_field(); ?>
             <input type="hidden" name="id" id="ev_id">
             <div class="form-group">
                 <label>Nama Kegiatan *</label>

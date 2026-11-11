@@ -20,16 +20,20 @@ $nama_user = $_SESSION['nama'];
 $role_user = $_SESSION['role'] ?? 'ADMIN';
 
 // Hitung Statistik
-$stat_kk = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(DISTINCT no_kk) as total FROM users WHERE role = 'Warga' AND no_kk IS NOT NULL AND no_kk != ''"));
+$res_kk = db_query($koneksi, "SELECT COUNT(DISTINCT no_kk) as total FROM users WHERE role = 'Warga' AND no_kk IS NOT NULL AND no_kk != ''", "");
+$stat_kk = ($res_kk && mysqli_num_rows($res_kk) > 0) ? mysqli_fetch_assoc($res_kk) : [];
 $total_kk = (int)($stat_kk['total'] ?? 0);
 
-$stat_warga = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga'"));
+$res_warga = db_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga'", "");
+$stat_warga = ($res_warga && mysqli_num_rows($res_warga) > 0) ? mysqli_fetch_assoc($res_warga) : [];
 $total_warga = (int)($stat_warga['total'] ?? 0);
 
-$stat_kepala = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga' AND status_keluarga = 'Kepala Keluarga'"));
+$res_kepala = db_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga' AND status_keluarga = 'Kepala Keluarga'", "");
+$stat_kepala = ($res_kepala && mysqli_num_rows($res_kepala) > 0) ? mysqli_fetch_assoc($res_kepala) : [];
 $total_kepala = (int)($stat_kepala['total'] ?? 0);
 
-$stat_anak = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga' AND status_keluarga = 'Anak'"));
+$res_anak = db_query($koneksi, "SELECT COUNT(*) as total FROM users WHERE role = 'Warga' AND status_keluarga = 'Anak'", "");
+$stat_anak = ($res_anak && mysqli_num_rows($res_anak) > 0) ? mysqli_fetch_assoc($res_anak) : [];
 $total_anak = (int)($stat_anak['total'] ?? 0);
 
 $avg_anggota = ($total_kk > 0) ? round($total_warga / $total_kk, 1) : 0;
@@ -37,16 +41,31 @@ $avg_anggota = ($total_kk > 0) ? round($total_warga / $total_kk, 1) : 0;
 // Filter & Pencarian
 $search = trim($_GET['q'] ?? '');
 $filter_anggota = trim($_GET['anggota'] ?? '');
+$filter_rt = trim($_GET['rt'] ?? '');
 
 $where_clauses = ["role = 'Warga'", "no_kk IS NOT NULL", "no_kk != ''"];
+$params = [];
+$types = "";
+
 if (!empty($search)) {
-    $search_safe = mysqli_real_escape_string($koneksi, $search);
-    $where_clauses[] = "(no_kk LIKE '%$search_safe%' OR nama LIKE '%$search_safe%' OR alamat LIKE '%$search_safe%' OR nik LIKE '%$search_safe%')";
+    $search_param = "%$search%";
+    $where_clauses[] = "(no_kk LIKE ? OR nama LIKE ? OR alamat LIKE ? OR nik LIKE ?)";
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $params[] = $search_param;
+    $types .= "ssss";
+}
+
+if (!empty($filter_rt)) {
+    $where_clauses[] = "rt = ?";
+    $params[] = $filter_rt;
+    $types .= "s";
 }
 
 $where_sql = implode(' AND ', $where_clauses);
 
-$kk_query_sql = "SELECT no_kk, alamat, COUNT(*) as total_anggota,
+$kk_query_sql = "SELECT no_kk, alamat, MAX(rt) as rt, MAX(rw) as rw, COUNT(*) as total_anggota,
                  MAX(CASE WHEN status_keluarga = 'Kepala Keluarga' THEN nama END) as kepala_keluarga,
                  MAX(CASE WHEN status_keluarga = 'Kepala Keluarga' THEN nik END) as nik_kepala
                  FROM users
@@ -65,8 +84,15 @@ if (!empty($filter_anggota)) {
 
 $kk_query_sql .= " ORDER BY no_kk ASC";
 
-$res_all_kk = mysqli_query($koneksi, $kk_query_sql);
+// Execute query dengan prepared statement
+$stmt = mysqli_prepare($koneksi, $kk_query_sql);
+if (!empty($params)) {
+    mysqli_stmt_bind_param($stmt, $types, ...$params);
+}
+mysqli_stmt_execute($stmt);
+$res_all_kk = mysqli_stmt_get_result($stmt);
 $total_filtered_kk = mysqli_num_rows($res_all_kk);
+mysqli_stmt_close($stmt);
 
 // Pagination untuk mobile: 6 per halaman
 $limit = 6;
@@ -76,31 +102,46 @@ if ($total_pages < 1) $total_pages = 1;
 if ($page > $total_pages) $page = $total_pages;
 $offset = ($page - 1) * $limit;
 
-$paged_kk_sql = $kk_query_sql . " LIMIT $limit OFFSET $offset";
-$res_paged_kk = mysqli_query($koneksi, $paged_kk_sql);
+$paged_kk_sql = $kk_query_sql . " LIMIT ? OFFSET ?";
+
+$stmt = mysqli_prepare($koneksi, $paged_kk_sql);
+if (!empty($params)) {
+    $types_with_limit = $types . "ii";
+    $params_with_limit = array_merge($params, [$limit, $offset]);
+    mysqli_stmt_bind_param($stmt, $types_with_limit, ...$params_with_limit);
+} else {
+    mysqli_stmt_bind_param($stmt, "ii", $limit, $offset);
+}
+mysqli_stmt_execute($stmt);
+$res_paged_kk = mysqli_stmt_get_result($stmt);
 
 $paged_kk_list = [];
 while ($row = mysqli_fetch_assoc($res_paged_kk)) {
     $paged_kk_list[] = $row;
 }
+mysqli_stmt_close($stmt);
 
 $displayed_no_kk = array_column($paged_kk_list, 'no_kk');
 $members_by_kk = [];
 
 if (!empty($displayed_no_kk)) {
-    $escaped_kk = array_map(function($val) use ($koneksi) {
-        return "'" . mysqli_real_escape_string($koneksi, $val) . "'";
-    }, $displayed_no_kk);
-    $in_kk_sql = implode(',', $escaped_kk);
-
-    $mem_sql = "SELECT id, nama, username, email, nik, no_kk, alamat, kelamin, no_hp, foto, status_keluarga 
+    $placeholders = implode(',', array_fill(0, count($displayed_no_kk), '?'));
+    $types = str_repeat('s', count($displayed_no_kk));
+    
+    $mem_sql = "SELECT id, nama, username, email, nik, no_kk, alamat, kelamin, no_hp, foto, status_keluarga, pekerjaan, status_perkawinan, pendidikan, agama 
                 FROM users 
-                WHERE role = 'Warga' AND no_kk IN ($in_kk_sql)
-                ORDER BY FIELD(status_keluarga, 'Kepala Keluarga', 'Istri', 'Anak', 'Famili Lain'), id ASC";
-    $mem_res = mysqli_query($koneksi, $mem_sql);
+                WHERE role = 'Warga' AND no_kk IN ($placeholders)
+                ORDER BY FIELD(status_keluarga, 'Kepala Keluarga', 'Suami', 'Istri', 'Anak', 'Famili Lain'), id ASC";
+    
+    $stmt = mysqli_prepare($koneksi, $mem_sql);
+    mysqli_stmt_bind_param($stmt, $types, ...$displayed_no_kk);
+    mysqli_stmt_execute($stmt);
+    $mem_res = mysqli_stmt_get_result($stmt);
+    
     while ($m = mysqli_fetch_assoc($mem_res)) {
         $members_by_kk[$m['no_kk']][] = $m;
     }
+    mysqli_stmt_close($stmt);
 }
 ?>
 <!DOCTYPE html>
@@ -376,8 +417,57 @@ if (!empty($displayed_no_kk)) {
             white-space: nowrap;
         }
         .m-tag-kepala { background: #e0f2fe; color: #0369a1; }
+        .m-tag-suami { background: #e0e7ff; color: #4338ca; }
         .m-tag-istri { background: #fce7f3; color: #be185d; }
         .m-tag-anak { background: #dcfce7; color: #15803d; }
+        .m-tag-famili { background: #fef3c7; color: #b45309; }
+
+        .m-btn-edit {
+            background: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 0.72rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 600;
+        }
+        .m-btn-split {
+            padding: 8px 10px;
+            background: #fdf2f8;
+            border: 1px solid #fbcfe8;
+            color: #db2777;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .m-form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 12px;
+        }
+        .m-form-group label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+        .m-form-group input, .m-form-group select, .m-form-group textarea {
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.84rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
 
         .m-kk-actions {
             margin-top: 12px;
@@ -576,7 +666,12 @@ if (!empty($displayed_no_kk)) {
                             <i class="fa-solid fa-address-card"></i>
                             <span><?php echo htmlspecialchars($no_kk); ?></span>
                         </div>
-                        <span class="m-kk-count"><?php echo count($members); ?> Anggota</span>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <span style="background:#fef3c7; color:#b45309; font-size:0.7rem; font-weight:800; padding:3px 7px; border-radius:6px; border:1px solid #fde68a;">
+                                RT <?php echo htmlspecialchars($kk['rt'] ?? '06'); ?>
+                            </span>
+                            <span class="m-kk-count"><?php echo count($members); ?> Anggota</span>
+                        </div>
                     </div>
 
                     <div class="m-kk-body">
@@ -593,16 +688,26 @@ if (!empty($displayed_no_kk)) {
                         <div class="m-member-list">
                             <?php foreach ($members as $mem): 
                                 $st = $mem['status_keluarga'] ?? 'Anggota';
-                                $tag_class = 'm-tag-anak';
+                                $tag_class = 'm-tag-famili';
                                 if ($st === 'Kepala Keluarga') $tag_class = 'm-tag-kepala';
+                                elseif ($st === 'Suami') $tag_class = 'm-tag-suami';
                                 elseif ($st === 'Istri') $tag_class = 'm-tag-istri';
+                                elseif ($st === 'Anak') $tag_class = 'm-tag-anak';
                             ?>
                                 <div class="m-member-item">
-                                    <div>
+                                    <div style="flex:1;">
                                         <div class="m-member-name"><?php echo htmlspecialchars($mem['nama']); ?></div>
-                                        <div class="m-member-nik">NIK: <?php echo htmlspecialchars($mem['nik']); ?> (<?php echo ($mem['kelamin'] === 'Laki-laki') ? 'L' : 'P'; ?>)</div>
+                                        <div class="m-member-nik">
+                                            NIK: <?php echo htmlspecialchars($mem['nik']); ?> (<?php echo ($mem['kelamin'] === 'Laki-laki') ? 'L' : 'P'; ?>)
+                                            <span style="color:#0284c7; font-weight:600; margin-left:4px;">&bull; <?php echo htmlspecialchars($mem['pekerjaan'] ?? 'Belum Bekerja'); ?></span>
+                                        </div>
                                     </div>
-                                    <span class="m-tag <?php echo $tag_class; ?>"><?php echo htmlspecialchars($st); ?></span>
+                                    <div style="display:flex; align-items:center; gap:6px;">
+                                        <span class="m-tag <?php echo $tag_class; ?>"><?php echo htmlspecialchars($st); ?></span>
+                                        <button type="button" class="m-btn-edit" onclick='openMobileEditMember(<?php echo json_encode($mem, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>)' title="Perbaiki Hubungan / KK">
+                                            <i class="fa-solid fa-pen"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             <?php endforeach; ?>
                         </div>
@@ -610,10 +715,13 @@ if (!empty($displayed_no_kk)) {
                         <!-- Aksi Cepat -->
                         <div class="m-kk-actions">
                             <button type="button" class="m-btn-print" onclick="openMobileKkModal('<?php echo $no_kk; ?>')">
-                                <i class="fa-solid fa-print"></i> Format Resmi KK
+                                <i class="fa-solid fa-print"></i> Format Cetak
+                            </button>
+                            <button type="button" class="m-btn-split" onclick="openMobileSplitKk('<?php echo $no_kk; ?>')" title="Pisah KK">
+                                <i class="fa-solid fa-code-fork"></i> Pisah KK
                             </button>
                             <button type="button" class="m-btn-copy" onclick="copyKkMobile('<?php echo $no_kk; ?>')">
-                                <i class="fa-regular fa-copy"></i> Salin
+                                <i class="fa-regular fa-copy"></i>
                             </button>
                         </div>
                     </div>
@@ -624,7 +732,7 @@ if (!empty($displayed_no_kk)) {
             <?php if ($total_pages > 1): ?>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
                     <?php if ($page > 1): ?>
-                        <a href="kelola_kk_mobile.php?page=<?php echo $page - 1; ?>&q=<?php echo urlencode($search); ?>&anggota=<?php echo urlencode($filter_anggota); ?>" class="m-chip">&laquo; Sebelumnya</a>
+                        <a href="kelola_kk_mobile.php?page=<?php echo $page - 1; ?>&q=<?php echo urlencode($search); ?>&anggota=<?php echo urlencode($filter_anggota); ?>&rt=<?php echo urlencode($filter_rt); ?>" class="m-chip">&laquo; Sebelumnya</a>
                     <?php else: ?>
                         <div></div>
                     <?php endif; ?>
@@ -632,7 +740,7 @@ if (!empty($displayed_no_kk)) {
                     <span style="font-size:0.75rem; color:var(--text-muted); font-weight:700;">Halaman <?php echo $page; ?> dari <?php echo $total_pages; ?></span>
 
                     <?php if ($page < $total_pages): ?>
-                        <a href="kelola_kk_mobile.php?page=<?php echo $page + 1; ?>&q=<?php echo urlencode($search); ?>&anggota=<?php echo urlencode($filter_anggota); ?>" class="m-chip">Selanjutnya &raquo;</a>
+                        <a href="kelola_kk_mobile.php?page=<?php echo $page + 1; ?>&q=<?php echo urlencode($search); ?>&anggota=<?php echo urlencode($filter_anggota); ?>&rt=<?php echo urlencode($filter_rt); ?>" class="m-chip">Selanjutnya &raquo;</a>
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
@@ -683,7 +791,7 @@ if (!empty($displayed_no_kk)) {
             <div style="font-size:0.75rem; line-height:1.4; margin-bottom:10px;">
                 <div><strong>Nama Kepala:</strong> <span id="mModalKepala">-</span></div>
                 <div><strong>Alamat:</strong> <span id="mModalAlamat">-</span></div>
-                <div><strong>RT / RW:</strong> 01 / 05 | <strong>Kelurahan:</strong> Margahayu</div>
+                <div><strong>RT / RW:</strong> 06 / 19 | <strong>Kelurahan:</strong> Margahayu</div>
                 <div><strong>Kecamatan:</strong> Bekasi Timur | <strong>Kota:</strong> Kota Bekasi</div>
             </div>
 
@@ -694,7 +802,8 @@ if (!empty($displayed_no_kk)) {
                         <th>Nama Lengkap</th>
                         <th>NIK</th>
                         <th>JK</th>
-                        <th>Status</th>
+                        <th>Pekerjaan</th>
+                        <th>Hubungan</th>
                     </tr>
                 </thead>
                 <tbody id="mModalTableBody">
@@ -709,17 +818,177 @@ if (!empty($displayed_no_kk)) {
                     <strong id="mModalSignKepala">NAMA KEPALA</strong>
                 </div>
                 <div style="width:120px;">
-                    <div>Ketua RT 01/RW 05,</div>
+                    <div id="mModalTitleRt">Ketua RT 06/RW 19,</div>
                     <div style="height:35px;"></div>
-                    <strong>DIMAS (RT)</strong>
+                    <strong id="mModalSignRt">DIMAS (KETUA RT 06)</strong>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit Anggota KK Mobile -->
+    <div class="m-modal" id="mobileEditModal">
+        <div class="m-modal-paper" style="border:none; max-width:92vw;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+                <strong style="font-size:0.9rem; color:var(--text);"><i class="fa-solid fa-pen-to-square" style="color:var(--primary);"></i> Perbaiki Data KK Warga</strong>
+                <button type="button" onclick="closeMobileEditMember()" style="background:transparent; border:none; font-size:1.1rem; color:#64748b; cursor:pointer;">&times;</button>
+            </div>
+
+            <form action="proses_kelola_kk.php" method="POST">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="action" value="edit_anggota_kk">
+                <input type="hidden" name="id_user" id="m_edit_id_user" value="">
+                <input type="hidden" name="redirect_to" value="kelola_kk_mobile.php">
+
+                <div class="m-form-group">
+                    <label>Nama Lengkap</label>
+                    <input type="text" id="m_edit_nama" name="nama" required>
+                </div>
+
+                <div class="m-form-group">
+                    <label>NIK (16 Digit)</label>
+                    <input type="text" id="m_edit_nik" name="nik" maxlength="16" pattern="\d{16}" required>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Jenis Kelamin</label>
+                    <select id="m_edit_kelamin" name="kelamin" required>
+                        <option value="Laki-laki">Laki-laki</option>
+                        <option value="Perempuan">Perempuan</option>
+                    </select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Hubungan Dalam Keluarga</label>
+                    <select id="m_edit_status_keluarga" name="status_keluarga" required>
+                        <option value="Kepala Keluarga">👑 Kepala Keluarga</option>
+                        <option value="Suami">👨 Suami</option>
+                        <option value="Istri">👩 Istri</option>
+                        <option value="Anak">👶 Anak</option>
+                        <option value="Famili Lain">👥 Famili Lain</option>
+                    </select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Jenis Pekerjaan</label>
+                    <select id="m_edit_pekerjaan" name="pekerjaan" required>
+                        <option value="Karyawan Swasta">Karyawan Swasta</option>
+                        <option value="Pegawai Negeri Sipil (PNS / ASN)">Pegawai Negeri Sipil (PNS / ASN)</option>
+                        <option value="Wiraswasta / Pedagang">Wiraswasta / Pedagang</option>
+                        <option value="Mengurus Rumah Tangga">Mengurus Rumah Tangga (Ibu Rumah Tangga)</option>
+                        <option value="Pelajar / Mahasiswa">Pelajar / Mahasiswa</option>
+                        <option value="Buruh Harian Lepas">Buruh Harian Lepas</option>
+                        <option value="Guru / Dosen">Guru / Tenaga Pengajar</option>
+                        <option value="Tenaga Medis">Tenaga Medis / Kesehatan</option>
+                        <option value="TNI / POLRI">TNI / POLRI</option>
+                        <option value="Pensiunan">Pensiunan</option>
+                        <option value="Belum / Tidak Bekerja">Belum / Tidak Bekerja</option>
+                        <option value="Lainnya">Lainnya</option>
+                    </select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Status Perkawinan</label>
+                    <select id="m_edit_status_perkawinan" name="status_perkawinan" required>
+                        <option value="Kawin">Kawin Tercatat</option>
+                        <option value="Belum Kawin">Belum Kawin</option>
+                        <option value="Cerai Hidup">Cerai Hidup</option>
+                        <option value="Cerai Mati">Cerai Mati</option>
+                    </select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Pendidikan Terakhir</label>
+                    <select id="m_edit_pendidikan" name="pendidikan" required>
+                        <option value="Tidak / Belum Sekolah">Tidak / Belum Sekolah</option>
+                        <option value="SD / Sederajat">SD / Sederajat</option>
+                        <option value="SMP / Sederajat">SMP / Sederajat</option>
+                        <option value="SLTA / Sederajat">SMA / SMK / Sederajat</option>
+                        <option value="Diploma (D1 - D4)">Diploma (D1 - D4)</option>
+                        <option value="Sarjana (S1)">Sarjana (S1)</option>
+                        <option value="Magister (S2)">Magister (S2)</option>
+                        <option value="Doktor (S3)">Doktor (S3)</option>
+                    </select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Agama</label>
+                    <select id="m_edit_agama" name="agama" required>
+                        <option value="Islam">Islam</option>
+                        <option value="Kristen Protestan">Kristen Protestan</option>
+                        <option value="Katolik">Katolik</option>
+                        <option value="Hindu">Hindu</option>
+                        <option value="Buddha">Buddha</option>
+                        <option value="Khonghucu">Khonghucu</option>
+                    </select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Nomor KK (16 Digit)</label>
+                    <input type="text" id="m_edit_no_kk" name="no_kk" maxlength="16" pattern="\d{16}" required>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Alamat Domisili</label>
+                    <input type="text" id="m_edit_alamat" name="alamat" required>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button type="button" onclick="closeMobileEditMember()" style="padding:7px 12px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; font-size:0.8rem; cursor:pointer;">Batal</button>
+                    <button type="submit" style="padding:7px 14px; background:var(--primary); color:#fff; border:none; border-radius:6px; font-size:0.8rem; font-weight:700; cursor:pointer;">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Pisah KK Mobile -->
+    <div class="m-modal" id="mobileSplitModal">
+        <div class="m-modal-paper" style="border:none; max-width:92vw;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e2e8f0; padding-bottom:8px; margin-bottom:12px;">
+                <strong style="font-size:0.9rem; color:#db2777;"><i class="fa-solid fa-code-fork"></i> Pisah Kartu Keluarga</strong>
+                <button type="button" onclick="closeMobileSplitKk()" style="background:transparent; border:none; font-size:1.1rem; color:#64748b; cursor:pointer;">&times;</button>
+            </div>
+
+            <form action="proses_kelola_kk.php" method="POST">
+                <?php echo csrf_field(); ?>
+                <input type="hidden" name="action" value="pisah_kk">
+                <input type="hidden" name="redirect_to" value="kelola_kk_mobile.php">
+
+                <div class="m-form-group">
+                    <label>Kepala Keluarga di KK Baru</label>
+                    <select id="m_split_id_kepala" name="id_kepala" onchange="onMobileSplitKepalaChange()" required></select>
+                </div>
+
+                <div class="m-form-group">
+                    <label>No. KK Baru (16 Digit)</label>
+                    <div style="display:flex; gap:6px;">
+                        <input type="text" id="m_split_no_kk_baru" name="no_kk_baru" maxlength="16" pattern="\d{16}" required style="flex:1;">
+                        <button type="button" onclick="generateMobileRandomKk()" style="padding:6px 10px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; font-size:0.75rem;">Acak</button>
+                    </div>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Alamat Baru</label>
+                    <input type="text" id="m_split_alamat_baru" name="alamat_baru" required>
+                </div>
+
+                <div class="m-form-group">
+                    <label>Pilih Anak/Anggota yang Ikut KK Baru:</label>
+                    <div id="m_split_children_container" style="max-height:140px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:6px; background:#f8fafc;"></div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button type="button" onclick="closeMobileSplitKk()" style="padding:7px 12px; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; font-size:0.8rem; cursor:pointer;">Batal</button>
+                    <button type="submit" style="padding:7px 14px; background:#db2777; color:#fff; border:none; border-radius:6px; font-size:0.8rem; font-weight:700; cursor:pointer;">Proses Pisah</button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script>
         const kkDataStore = <?php echo json_encode($members_by_kk, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
         const kkMetaStore = <?php echo json_encode($paged_kk_list, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+        let activeMobileSplitKk = '';
 
         function copyKkMobile(text) {
             if (navigator.clipboard) {
@@ -750,10 +1019,19 @@ if (!empty($displayed_no_kk)) {
             const kepala = meta ? meta.kepala_keluarga : (members[0] ? members[0].nama : '-');
             const alamat = meta ? meta.alamat : (members[0] ? members[0].alamat : '-');
 
+            const rtKk = meta ? (meta.rt || '06') : (members[0] && members[0].rt ? members[0].rt : '06');
             document.getElementById('mModalNoKk').textContent = 'No. ' + noKk;
             document.getElementById('mModalKepala').textContent = kepala;
             document.getElementById('mModalAlamat').textContent = alamat;
-            document.getElementById('mModalSignKepala').textContent = kepala.toUpperCase();
+            document.getElementById('mModalSignKepala').textContent = (kepala || '-').toUpperCase();
+
+            if (rtKk === '06') {
+                document.getElementById('mModalTitleRt').textContent = 'Ketua RT 06/RW 19,';
+                document.getElementById('mModalSignRt').textContent = 'DIMAS (KETUA RT 06)';
+            } else {
+                document.getElementById('mModalTitleRt').textContent = 'Ketua RT 07/RW 19,';
+                document.getElementById('mModalSignRt').textContent = 'BAMBANG (KETUA RT 07)';
+            }
 
             const tbody = document.getElementById('mModalTableBody');
             tbody.innerHTML = '';
@@ -765,7 +1043,8 @@ if (!empty($displayed_no_kk)) {
                     <td style="font-weight:700;">${m.nama}</td>
                     <td style="font-family:monospace; font-size:0.68rem; text-align:center;">${m.nik || '-'}</td>
                     <td style="text-align:center;">${(m.kelamin === 'Laki-laki') ? 'L' : 'P'}</td>
-                    <td style="text-align:center;">${m.status_keluarga || 'Anggota'}</td>
+                    <td style="text-align:center; font-size:0.7rem;">${m.pekerjaan || 'Belum Bekerja'}</td>
+                    <td style="text-align:center; font-weight:700;">${m.status_keluarga || 'Anggota'}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -777,6 +1056,92 @@ if (!empty($displayed_no_kk)) {
         function closeMobileKkModal() {
             document.getElementById('mobileKkModal').classList.remove('active');
             document.body.style.overflow = '';
+        }
+
+        // Edit Member Mobile
+        function openMobileEditMember(mem) {
+            if (!mem) return;
+            document.getElementById('m_edit_id_user').value = mem.id;
+            document.getElementById('m_edit_nama').value = mem.nama || '';
+            document.getElementById('m_edit_nik').value = mem.nik || '';
+            document.getElementById('m_edit_kelamin').value = mem.kelamin || 'Laki-laki';
+            document.getElementById('m_edit_no_kk').value = mem.no_kk || '';
+            document.getElementById('m_edit_status_keluarga').value = mem.status_keluarga || 'Anak';
+            document.getElementById('m_edit_pekerjaan').value = mem.pekerjaan || 'Belum / Tidak Bekerja';
+            document.getElementById('m_edit_status_perkawinan').value = mem.status_perkawinan || 'Kawin';
+            document.getElementById('m_edit_pendidikan').value = mem.pendidikan || 'SLTA / Sederajat';
+            document.getElementById('m_edit_agama').value = mem.agama || 'Islam';
+            document.getElementById('m_edit_alamat').value = mem.alamat || '';
+
+            document.getElementById('mobileEditModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeMobileEditMember() {
+            document.getElementById('mobileEditModal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        // Split KK Mobile
+        function openMobileSplitKk(noKk) {
+            activeMobileSplitKk = noKk;
+            const members = kkDataStore[noKk] || [];
+            let meta = null;
+            for (let i = 0; i < kkMetaStore.length; i++) {
+                if (kkMetaStore[i].no_kk === noKk) {
+                    meta = kkMetaStore[i];
+                    break;
+                }
+            }
+
+            const sel = document.getElementById('m_split_id_kepala');
+            sel.innerHTML = '';
+            members.forEach(function(m) {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = `${m.nama} (${m.kelamin === 'Perempuan' ? 'P' : 'L'} - ${m.status_keluarga || 'Anggota'})`;
+                sel.appendChild(opt);
+            });
+
+            document.getElementById('m_split_alamat_baru').value = meta ? meta.alamat : (members[0] ? members[0].alamat : '');
+            document.getElementById('m_split_no_kk_baru').value = '';
+
+            onMobileSplitKepalaChange();
+            document.getElementById('mobileSplitModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function onMobileSplitKepalaChange() {
+            const selectedId = parseInt(document.getElementById('m_split_id_kepala').value) || 0;
+            const members = kkDataStore[activeMobileSplitKk] || [];
+            const container = document.getElementById('m_split_children_container');
+            container.innerHTML = '';
+
+            const other = members.filter(m => parseInt(m.id) !== selectedId);
+            if (!other.length) {
+                container.innerHTML = '<div style="font-size:0.75rem; color:#64748b;">Hanya ada 1 anggota di KK ini.</div>';
+                return;
+            }
+
+            other.forEach(function(m) {
+                const row = document.createElement('label');
+                row.style.cssText = 'display:flex; align-items:center; gap:6px; font-size:0.78rem; background:#fff; padding:6px; border-radius:4px; border:1px solid #e2e8f0;';
+                const isChild = (m.status_keluarga === 'Anak');
+                row.innerHTML = `<input type="checkbox" name="ikut_anggota[]" value="${m.id}" ${isChild ? 'checked' : ''}> <span>${m.nama} (${m.status_keluarga || 'Anggota'})</span>`;
+                container.appendChild(row);
+            });
+        }
+
+        function closeMobileSplitKk() {
+            document.getElementById('mobileSplitModal').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        function generateMobileRandomKk() {
+            const prefix = '327501';
+            let rand = '';
+            for (let i = 0; i < 10; i++) rand += Math.floor(Math.random() * 10);
+            document.getElementById('m_split_no_kk_baru').value = prefix + rand;
         }
     </script>
     <script src="../js/responsive-app.js"></script>

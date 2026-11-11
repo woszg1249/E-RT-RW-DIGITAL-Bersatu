@@ -2,30 +2,29 @@
 
 include "../Koneksi.php";
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['nama'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-    exit();
-}
+require_login();
 
 $nama_user = $_SESSION['nama'];
 $action = isset($_GET['action']) ? $_GET['action'] : '';
 
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '$nama_user'");
-$data_user = mysqli_fetch_assoc($query_user);
-$id_user = $data_user['id'];
-$role = strtoupper($data_user['role']);
+$stmt_user = mysqli_prepare($koneksi, "SELECT id, role FROM users WHERE nama = ? LIMIT 1");
+mysqli_stmt_bind_param($stmt_user, "s", $nama_user);
+mysqli_stmt_execute($stmt_user);
+$result_user = mysqli_stmt_get_result($stmt_user);
+$data_user = mysqli_fetch_assoc($result_user);
+mysqli_stmt_close($stmt_user);
 
-// Ensure responses are sent as JSON
+$id_user = (int)($data_user['id'] ?? 0);
+$role = strtoupper($data_user['role'] ?? 'WARGA');
+
+$mutating_actions = ['add', 'approve', 'reject', 'delete'];
+if (in_array($action, $mutating_actions) && !csrf_check()) {
+    echo json_encode(['success' => false, 'message' => 'Token keamanan tidak valid']);
+    exit();
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
-// sanitize session username for DB usage
-$safe_nama_user = mysqli_real_escape_string($koneksi, $nama_user);
-
-// Create table if it doesn't exist
 $create_table = "CREATE TABLE IF NOT EXISTS bank_sampah (
     id INT AUTO_INCREMENT PRIMARY KEY,
     id_user INT NOT NULL,
@@ -43,94 +42,100 @@ $create_table = "CREATE TABLE IF NOT EXISTS bank_sampah (
 mysqli_query($koneksi, $create_table);
 
 if ($action === 'add') {
-    $id_user_input = isset($_POST['id_user']) ? intval($_POST['id_user']) : 0;
-    $jenis_sampah = isset($_POST['jenis_sampah']) ? mysqli_real_escape_string($koneksi, $_POST['jenis_sampah']) : '';
+    $id_user_input = isset($_POST['id_user']) ? (int)$_POST['id_user'] : 0;
+    $jenis_sampah = isset($_POST['jenis_sampah']) ? trim($_POST['jenis_sampah']) : '';
     $berat_kg = isset($_POST['berat_kg']) ? floatval($_POST['berat_kg']) : 0;
     $harga_per_kg = isset($_POST['harga_per_kg']) ? floatval($_POST['harga_per_kg']) : 0;
     $total_harga = isset($_POST['total_harga']) ? floatval($_POST['total_harga']) : ($berat_kg * $harga_per_kg);
-    $catatan = isset($_POST['catatan']) ? mysqli_real_escape_string($koneksi, $_POST['catatan']) : '';
+    $catatan = isset($_POST['catatan']) ? trim($_POST['catatan']) : '';
 
     if (empty($jenis_sampah) || $berat_kg <= 0 || $harga_per_kg <= 0) {
         echo json_encode(['success' => false, 'message' => 'Data tidak lengkap']);
         exit();
     }
 
-    $insert_user_id = $id_user_input > 0 ? $id_user_input : $id_user;
-    $query_insert = "INSERT INTO bank_sampah (id_user, nama_warga, jenis_sampah, berat_kg, harga_per_kg, total_harga, catatan, status) 
-                    VALUES ('$insert_user_id', '$safe_nama_user', '$jenis_sampah', '$berat_kg', '$harga_per_kg', '$total_harga', '$catatan', 'pending')";
+    $insert_user_id = ($id_user_input > 0 && $role === 'ADMIN') ? $id_user_input : $id_user;
+    $status = 'pending';
     
-    if (mysqli_query($koneksi, $query_insert)) {
+    $stmt = mysqli_prepare($koneksi, "INSERT INTO bank_sampah (id_user, nama_warga, jenis_sampah, berat_kg, harga_per_kg, total_harga, catatan, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    mysqli_stmt_bind_param($stmt, "issdddss", $insert_user_id, $nama_user, $jenis_sampah, $berat_kg, $harga_per_kg, $total_harga, $catatan, $status);
+    
+    if (mysqli_stmt_execute($stmt)) {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => true, 'message' => 'Data berhasil disimpan']);
     } else {
-        echo json_encode(['success' => false, 'message' => 'Gagal menyimpan data: ' . mysqli_error($koneksi)]);
+        mysqli_stmt_close($stmt);
+        echo json_encode(['success' => false, 'message' => 'Gagal menyimpan data. Silakan coba lagi.']);
     }
     exit();
 }
 
 if ($action === 'approve') {
-    if ($role !== 'ADMIN') {
-        echo json_encode(['success' => false, 'message' => 'Hanya admin yang dapat menyetujui']);
-        exit();
-    }
+    require_admin();
 
-    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     
     if ($id <= 0) {
         echo json_encode(['success' => false, 'message' => 'ID tidak valid']);
         exit();
     }
 
-    $query_update = "UPDATE bank_sampah SET status='approved', tanggal_diproses=NOW() WHERE id='$id'";
+    $status = 'approved';
+    $stmt = mysqli_prepare($koneksi, "UPDATE bank_sampah SET status=?, tanggal_diproses=NOW() WHERE id=?");
+    mysqli_stmt_bind_param($stmt, "si", $status, $id);
     
-    if (mysqli_query($koneksi, $query_update)) {
+    if (mysqli_stmt_execute($stmt)) {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => true, 'message' => 'Data berhasil disetujui']);
     } else {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => false, 'message' => 'Gagal menyetujui data']);
     }
     exit();
 }
 
 if ($action === 'reject') {
-    if ($role !== 'ADMIN') {
-        echo json_encode(['success' => false, 'message' => 'Hanya admin yang dapat menolak']);
-        exit();
-    }
+    require_admin();
 
-    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     
     if ($id <= 0) {
         echo json_encode(['success' => false, 'message' => 'ID tidak valid']);
         exit();
     }
 
-    $query_update = "UPDATE bank_sampah SET status='rejected', tanggal_diproses=NOW() WHERE id='$id'";
+    $status = 'rejected';
+    $stmt = mysqli_prepare($koneksi, "UPDATE bank_sampah SET status=?, tanggal_diproses=NOW() WHERE id=?");
+    mysqli_stmt_bind_param($stmt, "si", $status, $id);
     
-    if (mysqli_query($koneksi, $query_update)) {
+    if (mysqli_stmt_execute($stmt)) {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => true, 'message' => 'Data berhasil ditolak']);
     } else {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => false, 'message' => 'Gagal menolak data']);
     }
     exit();
 }
 
 if ($action === 'delete') {
-    if ($role !== 'ADMIN') {
-        echo json_encode(['success' => false, 'message' => 'Hanya admin yang dapat menghapus']);
-        exit();
-    }
+    require_admin();
 
-    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     
     if ($id <= 0) {
         echo json_encode(['success' => false, 'message' => 'ID tidak valid']);
         exit();
     }
 
-    $query_delete = "DELETE FROM bank_sampah WHERE id='$id'";
+    $stmt = mysqli_prepare($koneksi, "DELETE FROM bank_sampah WHERE id=?");
+    mysqli_stmt_bind_param($stmt, "i", $id);
     
-    if (mysqli_query($koneksi, $query_delete)) {
+    if (mysqli_stmt_execute($stmt)) {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => true, 'message' => 'Data berhasil dihapus']);
     } else {
+        mysqli_stmt_close($stmt);
         echo json_encode(['success' => false, 'message' => 'Gagal menghapus data']);
     }
     exit();

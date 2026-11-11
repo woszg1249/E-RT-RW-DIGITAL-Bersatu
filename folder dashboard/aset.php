@@ -14,12 +14,14 @@ $nama_user = $_SESSION['nama'];
 $role_user = strtoupper($_SESSION['role'] ?? 'WARGA');
 $id_user = intval($_SESSION['id'] ?? 0);
 
-$query_user = mysqli_query($koneksi, "SELECT * FROM users WHERE nama = '" . mysqli_real_escape_string($koneksi, $nama_user) . "'");
-$data_user = mysqli_fetch_assoc($query_user);
+$res_user = db_query($koneksi, "SELECT * FROM users WHERE nama = ?", "s", $nama_user);
+$data_user = ($res_user && mysqli_num_rows($res_user) > 0) ? mysqli_fetch_assoc($res_user) : [];
 $foto_db = $data_user['foto'] ?? '';
 
 if (!empty($foto_db) && file_exists("../img/" . $foto_db)) {
     $tampilan_foto = "../img/" . $foto_db;
+} elseif (file_exists("../img/profile.jpg")) {
+    $tampilan_foto = "../img/profile.jpg";
 } else {
     $tampilan_foto = "https://ui-avatars.com/api/?name=" . urlencode($nama_user) . "&background=4e73df&color=fff";
 }
@@ -62,93 +64,116 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'add_asset' && $role_user === 'ADMIN') {
-        $nama_aset = mysqli_real_escape_string($koneksi, trim($_POST['nama_aset'] ?? ''));
-        $deskripsi = mysqli_real_escape_string($koneksi, trim($_POST['deskripsi_aset'] ?? ''));
-        $kategori = mysqli_real_escape_string($koneksi, trim($_POST['kategori_aset'] ?? 'Umum'));
-        $kondisi = mysqli_real_escape_string($koneksi, trim($_POST['kondisi_aset'] ?? 'Baik'));
-        $lokasi = mysqli_real_escape_string($koneksi, trim($_POST['lokasi_aset'] ?? '-'));
-        $jumlah = max(1, intval($_POST['jumlah_aset'] ?? 1));
-        $status = mysqli_real_escape_string($koneksi, trim($_POST['status_aset'] ?? 'Aktif'));
+        $nama_aset = trim($_POST['nama_aset'] ?? '');
+        $deskripsi = trim($_POST['deskripsi_aset'] ?? '');
+        $kategori = trim($_POST['kategori_aset'] ?? 'Umum');
+        $kondisi = trim($_POST['kondisi_aset'] ?? 'Baik');
+        $lokasi = trim($_POST['lokasi_aset'] ?? '-');
+        $jumlah = max(1, (int)($_POST['jumlah_aset'] ?? 1));
+        $status = trim($_POST['status_aset'] ?? 'Aktif');
 
         if ($nama_aset === '') {
             $error_message = 'Nama aset tidak boleh kosong.';
         } else {
-            $insert = "INSERT INTO aset (nama, deskripsi, kategori, kondisi, lokasi, jumlah, status) VALUES ('" . $nama_aset . "', '" . $deskripsi . "', '" . $kategori . "', '" . $kondisi . "', '" . $lokasi . "', '" . $jumlah . "', '" . $status . "')";
-            if (mysqli_query($koneksi, $insert)) {
+            $stmt = mysqli_prepare($koneksi, "INSERT INTO aset (nama, deskripsi, kategori, kondisi, lokasi, jumlah, status) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            mysqli_stmt_bind_param($stmt, "ssssis", $nama_aset, $deskripsi, $kategori, $kondisi, $lokasi, $jumlah, $status);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                mysqli_stmt_close($stmt);
                 $_SESSION['aset_flash'] = 'Aset berhasil ditambahkan.';
                 header('Location: aset.php');
                 exit();
             }
-            $error_message = 'Gagal menyimpan aset: ' . mysqli_error($koneksi);
+            mysqli_stmt_close($stmt);
+            $error_message = 'Gagal menyimpan aset. Silakan coba lagi.';
         }
     }
 
     if ($action === 'edit_asset' && $role_user === 'ADMIN') {
-        $id_aset = intval($_POST['aset_id'] ?? 0);
-        $nama_aset = mysqli_real_escape_string($koneksi, trim($_POST['nama_aset'] ?? ''));
-        $deskripsi = mysqli_real_escape_string($koneksi, trim($_POST['deskripsi_aset'] ?? ''));
-        $kategori = mysqli_real_escape_string($koneksi, trim($_POST['kategori_aset'] ?? 'Umum'));
-        $kondisi = mysqli_real_escape_string($koneksi, trim($_POST['kondisi_aset'] ?? 'Baik'));
-        $lokasi = mysqli_real_escape_string($koneksi, trim($_POST['lokasi_aset'] ?? '-'));
-        $jumlah = max(1, intval($_POST['jumlah_aset'] ?? 1));
-        $status = mysqli_real_escape_string($koneksi, trim($_POST['status_aset'] ?? 'Aktif'));
+        $id_aset = (int)($_POST['aset_id'] ?? 0);
+        $nama_aset = trim($_POST['nama_aset'] ?? '');
+        $deskripsi = trim($_POST['deskripsi_aset'] ?? '');
+        $kategori = trim($_POST['kategori_aset'] ?? 'Umum');
+        $kondisi = trim($_POST['kondisi_aset'] ?? 'Baik');
+        $lokasi = trim($_POST['lokasi_aset'] ?? '-');
+        $jumlah = max(1, (int)($_POST['jumlah_aset'] ?? 1));
+        $status = trim($_POST['status_aset'] ?? 'Aktif');
 
         if ($id_aset <= 0 || $nama_aset === '') {
             $error_message = 'Data aset tidak valid.';
         } else {
-            $update = "UPDATE aset SET nama='" . $nama_aset . "', deskripsi='" . $deskripsi . "', kategori='" . $kategori . "', kondisi='" . $kondisi . "', lokasi='" . $lokasi . "', jumlah='" . $jumlah . "', status='" . $status . "' WHERE id='" . $id_aset . "'";
-            if (mysqli_query($koneksi, $update)) {
+            $stmt = mysqli_prepare($koneksi, "UPDATE aset SET nama=?, deskripsi=?, kategori=?, kondisi=?, lokasi=?, jumlah=?, status=? WHERE id=?");
+            mysqli_stmt_bind_param($stmt, "ssssisi", $nama_aset, $deskripsi, $kategori, $kondisi, $lokasi, $jumlah, $status, $id_aset);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                mysqli_stmt_close($stmt);
                 $_SESSION['aset_flash'] = 'Aset berhasil diperbarui.';
                 header('Location: aset.php');
                 exit();
             }
-            $error_message = 'Gagal memperbarui aset: ' . mysqli_error($koneksi);
+            mysqli_stmt_close($stmt);
+            $error_message = 'Gagal memperbarui aset. Silakan coba lagi.';
         }
     }
 
     if ($action === 'delete_asset' && $role_user === 'ADMIN') {
-        $id_aset = intval($_POST['aset_id'] ?? 0);
+        $id_aset = (int)($_POST['aset_id'] ?? 0);
         if ($id_aset > 0) {
-            $delete = "DELETE FROM aset WHERE id='" . $id_aset . "'";
-            if (mysqli_query($koneksi, $delete)) {
+            $stmt = mysqli_prepare($koneksi, "DELETE FROM aset WHERE id=?");
+            mysqli_stmt_bind_param($stmt, "i", $id_aset);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                mysqli_stmt_close($stmt);
                 $_SESSION['aset_flash'] = 'Aset berhasil dihapus.';
                 header('Location: aset.php');
                 exit();
             }
-            $error_message = 'Gagal menghapus aset: ' . mysqli_error($koneksi);
+            mysqli_stmt_close($stmt);
+            $error_message = 'Gagal menghapus aset. Silakan coba lagi.';
         }
     }
 
     if ($action === 'request_asset' && $role_user !== 'ADMIN') {
-        $id_aset = intval($_POST['aset_id'] ?? 0);
-        $jumlah_pinjam = max(1, intval($_POST['jumlah_pinjam'] ?? 1));
-        $tanggal_pinjam = mysqli_real_escape_string($koneksi, trim($_POST['tanggal_pinjam'] ?? ''));
-        $tanggal_kembali = mysqli_real_escape_string($koneksi, trim($_POST['tanggal_kembali'] ?? ''));
-        $catatan = mysqli_real_escape_string($koneksi, trim($_POST['catatan_pinjam'] ?? ''));
+        $id_aset = (int)($_POST['aset_id'] ?? 0);
+        $jumlah_pinjam = max(1, (int)($_POST['jumlah_pinjam'] ?? 1));
+        $tanggal_pinjam = trim($_POST['tanggal_pinjam'] ?? '');
+        $tanggal_kembali = trim($_POST['tanggal_kembali'] ?? '');
+        $catatan = trim($_POST['catatan_pinjam'] ?? '');
 
         if ($id_aset <= 0 || $tanggal_pinjam === '') {
             $error_message = 'Lengkapi data permohonan pinjaman.';
         } else {
-            $asset_check = mysqli_query($koneksi, "SELECT jumlah, status FROM aset WHERE id='" . $id_aset . "'");
-            $asset_data = mysqli_fetch_assoc($asset_check);
-            if (!$asset_data || $asset_data['status'] !== 'Aktif' || intval($asset_data['jumlah']) < $jumlah_pinjam) {
+            $res_asset = db_query($koneksi, "SELECT jumlah, status FROM aset WHERE id=?", "i", $id_aset);
+            $asset_data = ($res_asset && mysqli_num_rows($res_asset) > 0) ? mysqli_fetch_assoc($res_asset) : null;
+            
+            if (!$asset_data || $asset_data['status'] !== 'Aktif' || (int)$asset_data['jumlah'] < $jumlah_pinjam) {
                 $error_message = 'Aset tidak tersedia atau jumlah pinjam melebihi stok.';
             } else {
-                $insert = "INSERT INTO peminjaman_aset (id_aset, id_user, jumlah_pinjam, tanggal_pinjam, tanggal_kembali, catatan) VALUES ('" . $id_aset . "', '" . $id_user . "', '" . $jumlah_pinjam . "', '" . $tanggal_pinjam . "', " . ($tanggal_kembali ? "'" . $tanggal_kembali . "'" : "NULL") . ", '" . $catatan . "')";
-                if (mysqli_query($koneksi, $insert)) {
+                $stmt = mysqli_prepare($koneksi, "INSERT INTO peminjaman_aset (id_aset, id_user, jumlah_pinjam, tanggal_pinjam, tanggal_kembali, catatan) VALUES (?, ?, ?, ?, ?, ?)");
+                $tanggal_kembali_val = $tanggal_kembali ?: null;
+                mysqli_stmt_bind_param($stmt, "iiisss", $id_aset, $id_user, $jumlah_pinjam, $tanggal_pinjam, $tanggal_kembali_val, $catatan);
+                
+                if (mysqli_stmt_execute($stmt)) {
+                    mysqli_stmt_close($stmt);
                     $_SESSION['aset_flash'] = 'Permohonan pinjaman aset berhasil dikirim. Tunggu persetujuan RT/RW.';
                     header('Location: aset.php');
                     exit();
                 }
-                $error_message = 'Gagal mengajukan pinjaman: ' . mysqli_error($koneksi);
+                mysqli_stmt_close($stmt);
+                $error_message = 'Gagal mengajukan pinjaman. Silakan coba lagi.';
             }
         }
     }
 
     if ($role_user === 'ADMIN' && in_array($action, ['approve_request', 'reject_request', 'return_request'])) {
-        $request_id = intval($_POST['request_id'] ?? 0);
-        $request_check = mysqli_query($koneksi, "SELECT pa.*, a.jumlah AS aset_jumlah FROM peminjaman_aset pa LEFT JOIN aset a ON pa.id_aset = a.id WHERE pa.id='" . $request_id . "'");
-        $request_data = mysqli_fetch_assoc($request_check);
+        $request_id = (int)($_POST['request_id'] ?? 0);
+        
+        $stmt = mysqli_prepare($koneksi, "SELECT pa.*, a.jumlah AS aset_jumlah FROM peminjaman_aset pa LEFT JOIN aset a ON pa.id_aset = a.id WHERE pa.id=?");
+        mysqli_stmt_bind_param($stmt, "i", $request_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        $request_data = mysqli_fetch_assoc($result);
+        mysqli_stmt_close($stmt);
 
         if (!$request_data) {
             $error_message = 'Permohonan tidak ditemukan.';
@@ -156,11 +181,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($action === 'approve_request') {
                 if ($request_data['status'] !== 'Menunggu') {
                     $error_message = 'Permohonan sudah diproses.';
-                } elseif (intval($request_data['aset_jumlah']) < intval($request_data['jumlah_pinjam'])) {
+                } elseif ((int)$request_data['aset_jumlah'] < (int)$request_data['jumlah_pinjam']) {
                     $error_message = 'Stok aset tidak mencukupi untuk persetujuan.';
                 } else {
-                    mysqli_query($koneksi, "UPDATE peminjaman_aset SET status='Disetujui' WHERE id='" . $request_id . "'");
-                    mysqli_query($koneksi, "UPDATE aset SET jumlah=jumlah - '" . intval($request_data['jumlah_pinjam']) . "' WHERE id='" . intval($request_data['id_aset']) . "'");
+                    $stmt1 = mysqli_prepare($koneksi, "UPDATE peminjaman_aset SET status='Disetujui' WHERE id=?");
+                    mysqli_stmt_bind_param($stmt1, "i", $request_id);
+                    mysqli_stmt_execute($stmt1);
+                    mysqli_stmt_close($stmt1);
+                    
+                    $jumlah_pinjam = (int)$request_data['jumlah_pinjam'];
+                    $id_aset = (int)$request_data['id_aset'];
+                    $stmt2 = mysqli_prepare($koneksi, "UPDATE aset SET jumlah=jumlah - ? WHERE id=?");
+                    mysqli_stmt_bind_param($stmt2, "ii", $jumlah_pinjam, $id_aset);
+                    mysqli_stmt_execute($stmt2);
+                    mysqli_stmt_close($stmt2);
+                    
                     $_SESSION['aset_flash'] = 'Permohonan berhasil disetujui.';
                     header('Location: aset.php');
                     exit();
@@ -171,7 +206,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($request_data['status'] !== 'Menunggu') {
                     $error_message = 'Permohonan sudah diproses.';
                 } else {
-                    mysqli_query($koneksi, "UPDATE peminjaman_aset SET status='Ditolak' WHERE id='" . $request_id . "'");
+                    $stmt = mysqli_prepare($koneksi, "UPDATE peminjaman_aset SET status='Ditolak' WHERE id=?");
+                    mysqli_stmt_bind_param($stmt, "i", $request_id);
+                    mysqli_stmt_execute($stmt);
+                    mysqli_stmt_close($stmt);
+                    
                     $_SESSION['aset_flash'] = 'Permohonan telah ditolak.';
                     header('Location: aset.php');
                     exit();
@@ -182,8 +221,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($request_data['status'] !== 'Disetujui') {
                     $error_message = 'Hanya peminjaman yang disetujui yang dapat dikembalikan.';
                 } else {
-                    mysqli_query($koneksi, "UPDATE peminjaman_aset SET status='Dikembalikan' WHERE id='" . $request_id . "'");
-                    mysqli_query($koneksi, "UPDATE aset SET jumlah=jumlah + '" . intval($request_data['jumlah_pinjam']) . "' WHERE id='" . intval($request_data['id_aset']) . "'");
+                    $stmt1 = mysqli_prepare($koneksi, "UPDATE peminjaman_aset SET status='Dikembalikan' WHERE id=?");
+                    mysqli_stmt_bind_param($stmt1, "i", $request_id);
+                    mysqli_stmt_execute($stmt1);
+                    mysqli_stmt_close($stmt1);
+                    
+                    $jumlah_pinjam = (int)$request_data['jumlah_pinjam'];
+                    $id_aset = (int)$request_data['id_aset'];
+                    $stmt2 = mysqli_prepare($koneksi, "UPDATE aset SET jumlah=jumlah + ? WHERE id=?");
+                    mysqli_stmt_bind_param($stmt2, "ii", $jumlah_pinjam, $id_aset);
+                    mysqli_stmt_execute($stmt2);
+                    mysqli_stmt_close($stmt2);
+                    
                     $_SESSION['aset_flash'] = 'Status pengembalian aset berhasil dicatat.';
                     header('Location: aset.php');
                     exit();
@@ -194,10 +243,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $assets = [];
-$result_aset = mysqli_query($koneksi, "SELECT * FROM aset ORDER BY nama ASC");
+$stmt = mysqli_prepare($koneksi, "SELECT * FROM aset ORDER BY nama ASC");
+mysqli_stmt_execute($stmt);
+$result_aset = mysqli_stmt_get_result($stmt);
 while ($row = mysqli_fetch_assoc($result_aset)) {
     $assets[] = $row;
 }
+mysqli_stmt_close($stmt);
 
 $requests = [];
 if ($role_user === 'ADMIN') {

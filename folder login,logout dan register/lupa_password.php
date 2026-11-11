@@ -1,28 +1,100 @@
 <?php
+session_start();
 include '../Koneksi.php'; 
 
 $message = "";
-$status = "";
+$is_blocked = false;
 
-if (isset($_POST['cek_email'])) {
-    $identifier = trim(mysqli_real_escape_string($koneksi, $_POST['identifier']));
+if (isset($_POST['verify'])) {
+    $identifier = trim($_POST['identifier']);
+    $nik_last4 = trim($_POST['nik_last4']);
 
-    if ($identifier === '') {
-        $status = "error";
-        $message = "Silakan masukkan email atau nomor telepon yang terdaftar.";
+    if ($identifier === '' || $nik_last4 === '') {
+        $message = "Data verifikasi tidak lengkap. Silakan coba lagi.";
+    } elseif (!preg_match('/^\d{4}$/', $nik_last4)) {
+        $message = "Data verifikasi tidak valid. Silakan coba lagi.";
     } else {
-        if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
-            $query = mysqli_query($koneksi, "SELECT * FROM users WHERE email='$identifier'");
+        $is_email = filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        
+        if ($is_email) {
+            $stmt = mysqli_prepare($koneksi, "SELECT id, nama, email, nik, reset_attempts, reset_locked_until FROM users WHERE email = ? LIMIT 1");
         } else {
-            $query = mysqli_query($koneksi, "SELECT * FROM users WHERE no_hp='$identifier'");
+            $stmt = mysqli_prepare($koneksi, "SELECT id, nama, no_hp, nik, reset_attempts, reset_locked_until FROM users WHERE no_hp = ? LIMIT 1");
         }
-
-        if (mysqli_num_rows($query) > 0) {
-            echo "<script>window.location.href='reset_password.php?identifier=" . urlencode($identifier) . "';</script>";
-            exit();
+        
+        if ($stmt) {
+            mysqli_stmt_bind_param($stmt, "s", $identifier);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            
+            if ($result && mysqli_num_rows($result) > 0) {
+                $user = mysqli_fetch_assoc($result);
+                
+                if ($user['reset_locked_until'] !== null && strtotime($user['reset_locked_until']) > time()) {
+                    $message = "Terlalu banyak percobaan. Silakan coba lagi nanti.";
+                    $is_blocked = true;
+                    mysqli_stmt_close($stmt);
+                } elseif (strlen($user['nik']) >= 4 && substr($user['nik'], -4) === $nik_last4) {
+                    $stmt_reset = mysqli_prepare($koneksi, "UPDATE users SET reset_attempts = 0, reset_locked_until = NULL WHERE id = ?");
+                    if ($stmt_reset) {
+                        mysqli_stmt_bind_param($stmt_reset, "i", $user['id']);
+                        mysqli_stmt_execute($stmt_reset);
+                        mysqli_stmt_close($stmt_reset);
+                    }
+                    
+                    $_SESSION['reset_user_id'] = $user['id'];
+                    $_SESSION['reset_user_name'] = $user['nama'];
+                    $_SESSION['reset_timestamp'] = time();
+                    unset($_SESSION['reset_fail_count']);
+                    
+                    mysqli_stmt_close($stmt);
+                    header("Location: reset_password.php");
+                    exit();
+                } else {
+                    $new_attempts = (int)$user['reset_attempts'] + 1;
+                    
+                    if ($new_attempts >= 5) {
+                        $lock_until = date('Y-m-d H:i:s', time() + 900);
+                        $stmt_lock = mysqli_prepare($koneksi, "UPDATE users SET reset_attempts = ?, reset_locked_until = ? WHERE id = ?");
+                        if ($stmt_lock) {
+                            mysqli_stmt_bind_param($stmt_lock, "isi", $new_attempts, $lock_until, $user['id']);
+                            mysqli_stmt_execute($stmt_lock);
+                            mysqli_stmt_close($stmt_lock);
+                        }
+                        $message = "Terlalu banyak percobaan. Silakan coba lagi nanti.";
+                        $is_blocked = true;
+                    } else {
+                        $stmt_inc = mysqli_prepare($koneksi, "UPDATE users SET reset_attempts = ? WHERE id = ?");
+                        if ($stmt_inc) {
+                            mysqli_stmt_bind_param($stmt_inc, "ii", $new_attempts, $user['id']);
+                            mysqli_stmt_execute($stmt_inc);
+                            mysqli_stmt_close($stmt_inc);
+                        }
+                        $message = "Data verifikasi tidak cocok. Silakan coba lagi.";
+                    }
+                    
+                    if (!isset($_SESSION['reset_fail_count'])) {
+                        $_SESSION['reset_fail_count'] = 0;
+                    }
+                    $_SESSION['reset_fail_count']++;
+                }
+            } else {
+                if (!isset($_SESSION['reset_fail_count'])) {
+                    $_SESSION['reset_fail_count'] = 0;
+                }
+                $_SESSION['reset_fail_count']++;
+                
+                if ($_SESSION['reset_fail_count'] >= 5) {
+                    $message = "Terlalu banyak percobaan. Silakan coba lagi nanti.";
+                    $is_blocked = true;
+                } else {
+                    $message = "Data verifikasi tidak cocok. Silakan coba lagi.";
+                }
+            }
+            
+            mysqli_stmt_close($stmt);
         } else {
-            $status = "error";
-            $message = "Data tidak ditemukan. Pastikan email atau nomor telepon sudah terdaftar.";
+            $message = "Terjadi kesalahan sistem. Silakan coba lagi.";
         }
     }
 }
@@ -101,6 +173,16 @@ if (isset($_POST['cek_email'])) {
             color: #ef4444;
             font-size: 13px;
             margin-bottom: 10px;
+            background: rgba(254, 242, 242, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .info {
+            color: #64748b;
+            font-size: 13px;
+            margin-bottom: 20px;
+            line-height: 1.5;
         }
 
         a {
@@ -119,16 +201,19 @@ if (isset($_POST['cek_email'])) {
 <body>
     <div class="card">
         <h2>Lupa Password</h2>
-        <p style="color: #64748b; font-size: 14px;">Masukkan email atau nomor telepon terdaftar.</p>
+        <p class="info">Masukkan email atau nomor telepon Anda dan <strong>4 digit terakhir NIK</strong> untuk verifikasi identitas.</p>
         
         <?php if ($message !== ""): ?>
-            <div class="error"><?php echo $message; ?></div>
+            <div class="error"><?php echo htmlspecialchars($message); ?></div>
         <?php endif; ?>
 
+        <?php if (!$is_blocked): ?>
         <form method="POST">
-            <input type="text" name="identifier" placeholder="Email atau Nomor Telepon" required>
-            <button type="submit" name="cek_email">Verifikasi</button>
+            <input type="text" name="identifier" placeholder="Email atau Nomor Telepon" value="<?php echo htmlspecialchars($_POST['identifier'] ?? ''); ?>" required>
+            <input type="text" name="nik_last4" placeholder="4 Digit Terakhir NIK" maxlength="4" pattern="\d{4}" inputmode="numeric" value="<?php echo htmlspecialchars($_POST['nik_last4'] ?? ''); ?>" required>
+            <button type="submit" name="verify">Verifikasi & Lanjutkan</button>
         </form>
+        <?php endif; ?>
         
         <a href="login.php">← Kembali ke Login</a>
     </div>

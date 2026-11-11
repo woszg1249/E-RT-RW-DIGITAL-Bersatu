@@ -1,13 +1,6 @@
 <?php
 include "../Koneksi.php";
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['nama']) || strtoupper($_SESSION['role'] ?? 'WARGA') !== 'ADMIN') {
-    echo "<script>alert('Akses Ditolak! Anda bukan Admin.'); window.location='dashboard.php';</script>";
-    exit();
-}
+require_admin();
 
 $nama_user = $_SESSION['nama'];
 $role_user = $_SESSION['role'] ?? 'ADMIN';
@@ -37,25 +30,30 @@ mysqli_query($koneksi, $create_table_sql);
 
 $feedback_message = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['surat_action'])) {
-    $surat_id = mysqli_real_escape_string($koneksi, $_POST['surat_id']);
-    $new_status = mysqli_real_escape_string($koneksi, $_POST['surat_action']);
-    if (in_array($new_status, ['ACC', 'Ditolak'])) {
-        $update_sql = "UPDATE surat_pengajuan SET status = '$new_status' WHERE id = '$surat_id'";
-        if (mysqli_query($koneksi, $update_sql)) {
+    $surat_id = (int)($_POST['surat_id'] ?? 0);
+    $new_status = trim($_POST['surat_action'] ?? '');
+    
+    if ($surat_id > 0 && in_array($new_status, ['ACC', 'Ditolak'], true)) {
+        $stmt = mysqli_prepare($koneksi, "UPDATE surat_pengajuan SET status = ? WHERE id = ?");
+        mysqli_stmt_bind_param($stmt, "si", $new_status, $surat_id);
+        
+        if (mysqli_stmt_execute($stmt)) {
             $feedback_message = 'Status pengajuan surat berhasil diperbarui.';
         } else {
-            $feedback_message = 'Gagal memperbarui status: ' . mysqli_error($koneksi);
+            $feedback_message = 'Gagal memperbarui status. Silakan coba lagi.';
         }
+        mysqli_stmt_close($stmt);
     }
 }
 
 $surat_list = [];
-$result = mysqli_query($koneksi, "SELECT * FROM surat_pengajuan ORDER BY created_at DESC");
-if ($result) {
-    while ($row = mysqli_fetch_assoc($result)) {
-        $surat_list[] = $row;
-    }
+$stmt = mysqli_prepare($koneksi, "SELECT * FROM surat_pengajuan ORDER BY created_at DESC");
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+while ($row = mysqli_fetch_assoc($result)) {
+    $surat_list[] = $row;
 }
+mysqli_stmt_close($stmt);
 
 $title = 'Kelola Pengajuan Surat - RT RW Digital Bersatu';
 include '../includes/header.php';
